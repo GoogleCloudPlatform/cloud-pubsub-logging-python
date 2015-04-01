@@ -45,6 +45,9 @@ from apiclient import discovery
 from apiclient import errors
 from oauth2client.client import GoogleCredentials
 
+__version__ = '0.1.6'
+
+
 DEFAULT_BATCH_NUM = 1000
 DEFAULT_RETRY_COUNT = 5
 MAX_BATCH_SIZE = 1000
