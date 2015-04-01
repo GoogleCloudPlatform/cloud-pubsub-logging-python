@@ -16,7 +16,6 @@
 """Unit tests for pubsub_logging."""
 
 
-import base64
 import logging
 import unittest
 
@@ -97,7 +96,8 @@ class FlushTest(unittest.TestCase):
         self.topics = self.projects.topics.return_value
         self.topics_publish = self.topics.publish.return_value
         self.log_msg = 'Test message'
-        self.expected_payload = base64.urlsafe_b64encode(self.log_msg)
+        self.expected_payload = pubsub_logging.compat_urlsafe_b64encode(
+            self.log_msg)
         self.expected_body = {'messages': [{'data': self.expected_payload}]}
         self.r = logging.LogRecord('test', logging.INFO, None, 0, self.log_msg,
                                    [], None)

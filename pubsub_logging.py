@@ -51,6 +51,14 @@ MAX_BATCH_SIZE = 1000
 PUBSUB_SCOPES = ["https://www.googleapis.com/auth/pubsub"]
 
 
+def compat_urlsafe_b64encode(v):
+    """A urlsafe ba64encode which is compatible with Python 2 and 3."""
+    if sys.version_info[0] == 3:
+        return base64.urlsafe_b64encode(v.encode('UTF-8')).decode('ascii')
+    else:
+        return base64.urlsafe_b64encode(v)
+
+
 class RecoverableError(Exception):
     """A special error case we'll ignore."""
     pass
@@ -123,7 +131,7 @@ class PubsubHandler(logging.handlers.BufferingHandler):
         try:
             while self.buffer:
                 body = {'messages':
-                        [{'data': base64.urlsafe_b64encode(self.format(r))}
+                        [{'data': compat_urlsafe_b64encode(self.format(r))}
                             for r in self.buffer[:MAX_BATCH_SIZE]]}
                 self._publish(body)
                 self.buffer = self.buffer[MAX_BATCH_SIZE:]
