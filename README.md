@@ -3,7 +3,7 @@
 You can use the pubsub_logging.PubsubHandler to publish the logs to [Cloud Pub/Sub](https://cloud.google.com/pubsub/docs/). You can use this module with [the standard Python logging module](https://docs.python.org/2/library/logging.html).
 
 ## Supported version
-Python 2.7 and 3.4 are supported.
+Python 2.7 is supported.
 
 ## How to use
 An example configuration can be found in `examples/logging.conf`. A dynamic usage example is included in `pubsub_logging.py`.
