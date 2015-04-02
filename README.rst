@@ -3,7 +3,7 @@ cloud-pubsub-logging-python
 
     A logging handler for publishing the logs to Cloud Pub/Sub.
 
-|pypi| |build|
+|pypi| |build| |coverage|
 
 You can use the pubsub_logging.PubsubHandler to publish the logs to `Cloud Pub/Sub`_. You can use this module with `the standard Python logging module`_.
 
@@ -107,3 +107,5 @@ As `the documentation suggests`_, create a new service account and download its 
    :target: https://travis-ci.org/GoogleCloudPlatform/cloud-pubsub-logging-python
 .. |pypi| image:: https://img.shields.io/pypi/v/pubsub-logging.svg
    :target: https://pypi.python.org/pypi/pubsub-logging
+.. |coverage| image:: https://coveralls.io/repos/GoogleCloudPlatform/cloud-pubsub-logging-python/badge.png?branch=master
+   :target: https://coveralls.io/r/GoogleCloudPlatform/cloud-pubsub-logging-python?branch=master

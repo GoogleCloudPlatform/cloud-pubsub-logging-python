@@ -56,7 +56,7 @@ PUBSUB_SCOPES = ["https://www.googleapis.com/auth/pubsub"]
 
 def compat_urlsafe_b64encode(v):
     """A urlsafe ba64encode which is compatible with Python 2 and 3."""
-    if sys.version_info[0] == 3:
+    if sys.version_info[0] == 3:  # pragma: NO COVER
         return base64.urlsafe_b64encode(v.encode('UTF-8')).decode('ascii')
     else:
         return base64.urlsafe_b64encode(v)
@@ -93,7 +93,7 @@ class PubsubHandler(logging.handlers.BufferingHandler):
         self._buf_hard_limit = buf_hard_limit
         if client:
             self._client = client
-        else:
+        else:  # pragma: NO COVER
             credentials = GoogleCredentials.get_application_default()
             if credentials.create_scoped_required():
                 credentials = credentials.create_scoped(PUBSUB_SCOPES)
@@ -161,7 +161,7 @@ class PubsubHandler(logging.handlers.BufferingHandler):
                 or (len(self.buffer) >= self.capacity))
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':  # pragma: NO COVER
     logger = None
     if len(sys.argv) == 2:
         topic = sys.argv[1]
