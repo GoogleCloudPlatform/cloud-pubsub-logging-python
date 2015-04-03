@@ -25,6 +25,16 @@ import mock
 import pubsub_logging
 
 
+class CompatBase64Test(unittest.TestCase):
+    """Test for compat_urlsafe_b64encode function."""
+
+    def test_compat_urlsafe_b64encode(self):
+        v = 'test'
+        expected = 'dGVzdA=='
+        result = pubsub_logging.compat_urlsafe_b64encode(v)
+        self.assertEqual(expected, result)
+
+
 class PubsubHandlerTest(unittest.TestCase):
     """Tests for the emit method."""
     RETRY = 3
