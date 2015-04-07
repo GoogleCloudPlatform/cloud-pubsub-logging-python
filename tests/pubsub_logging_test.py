@@ -20,6 +20,7 @@ import logging
 import unittest
 
 from apiclient import errors
+
 import mock
 
 import pubsub_logging
