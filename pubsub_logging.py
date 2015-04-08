@@ -24,7 +24,7 @@ transmit the buffered logs to Cloud Pub/Sub.
 By default, this log handler will try to keep the logs as much as
 possible, even upon intermittent failure on Cloud Pub/Sub API. If
 you're concerned about indifinitely growing buffer size in such cases,
-you should set buf_hard_limit, then the buffer will be cut of at the
+you should set buf_hard_limit, then the buffer will be cut off at the
 specified size. In that case, you may want to consider having another
 backup logging handler backed by the local disk or something.
 
@@ -40,10 +40,14 @@ import logging.handlers
 import os
 import sys
 
-import httplib2
+
 from apiclient import discovery
 from apiclient import errors
+
+import httplib2
+
 from oauth2client.client import GoogleCredentials
+
 
 __version__ = '0.1.6'
 
