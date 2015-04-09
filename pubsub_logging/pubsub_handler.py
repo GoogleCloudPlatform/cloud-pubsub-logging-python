@@ -32,43 +32,17 @@ backup logging handler backed by the local disk or something.
 
 """
 
-
-import base64
 import logging
-import logging.config
-import logging.handlers
-import os
-import sys
 
-
-from apiclient import discovery
-from apiclient import errors
-
-import httplib2
-
-from oauth2client.client import GoogleCredentials
-
-
-__version__ = '0.1.6'
+from pubsub_logging.errors import RecoverableError
+from pubsub_logging.utils import compat_urlsafe_b64encode
+from pubsub_logging.utils import get_pubsub_client
+from pubsub_logging.utils import publish_body
 
 
 DEFAULT_BATCH_NUM = 1000
 DEFAULT_RETRY_COUNT = 5
 MAX_BATCH_SIZE = 1000
-PUBSUB_SCOPES = ["https://www.googleapis.com/auth/pubsub"]
-
-
-def compat_urlsafe_b64encode(v):
-    """A urlsafe ba64encode which is compatible with Python 2 and 3."""
-    if sys.version_info[0] == 3:  # pragma: NO COVER
-        return base64.urlsafe_b64encode(v.encode('UTF-8')).decode('ascii')
-    else:
-        return base64.urlsafe_b64encode(v)
-
-
-class RecoverableError(Exception):
-    """A special error case we'll ignore."""
-    pass
 
 
 class PubsubHandler(logging.handlers.BufferingHandler):
@@ -98,39 +72,7 @@ class PubsubHandler(logging.handlers.BufferingHandler):
         if client:
             self._client = client
         else:  # pragma: NO COVER
-            credentials = GoogleCredentials.get_application_default()
-            if credentials.create_scoped_required():
-                credentials = credentials.create_scoped(PUBSUB_SCOPES)
-            http = httplib2.Http()
-            credentials.authorize(http=http)
-            self._client = discovery.build('pubsub', 'v1beta2', http=http)
-
-    def _publish(self, body):
-        """Publishes the specified body to Cloud Pub/Sub.
-
-        Args:
-          body: A request body for Cloud Pub/Sub publish call.
-
-        Raises:
-          errors.HttpError When the Cloud Pub/Sub API call fails with
-                           unrecoverable reasons.
-          RecoverableError When the Cloud Pub/Sub API call fails with
-                           intermittent errors.
-        """
-        try:
-            self._client.projects().topics().publish(
-                topic=self._topic, body=body).execute(
-                    num_retries=self._retry)
-        except errors.HttpError as e:
-            if e.resp.status >= 400 and e.resp.status < 500:
-                # Publishing failed for some non-recoverable reason. For
-                # example, perhaps the service account doesn't have a
-                # permission to publish to the specified topic, or the topic
-                # simply doesn't exist.
-                raise
-            else:
-                # Treat this as a recoverable error.
-                raise RecoverableError()
+            self._client = get_pubsub_client()
 
     def flush(self):
         """Transmits the buffered logs to Cloud Pub/Sub."""
@@ -140,7 +82,7 @@ class PubsubHandler(logging.handlers.BufferingHandler):
                 body = {'messages':
                         [{'data': compat_urlsafe_b64encode(self.format(r))}
                             for r in self.buffer[:MAX_BATCH_SIZE]]}
-                self._publish(body)
+                publish_body(self._client, body, self._topic, self._retry)
                 self.buffer = self.buffer[MAX_BATCH_SIZE:]
         except RecoverableError:
             # Cloud Pub/Sub API didn't receive the logs, most
@@ -163,23 +105,3 @@ class PubsubHandler(logging.handlers.BufferingHandler):
         """
         return (record.levelno >= self._flush_level
                 or (len(self.buffer) >= self.capacity))
-
-
-if __name__ == '__main__':  # pragma: NO COVER
-    logger = None
-    if len(sys.argv) == 2:
-        topic = sys.argv[1]
-        pubsub_handler = PubsubHandler(topic=topic)
-        pubsub_handler.setFormatter(
-            logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-
-        logger = logging.getLogger('root')
-        logger.setLevel(logging.DEBUG)
-        logger.addHandler(pubsub_handler)
-    else:
-        logging.config.fileConfig(os.path.join('examples', 'logging.conf'))
-        logger = logging.getLogger('root')
-    for i in range(99):
-        logger.info('log message %03d.', i)
-    logger.critical('Flushing')
