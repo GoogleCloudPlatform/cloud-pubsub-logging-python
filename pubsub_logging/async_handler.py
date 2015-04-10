@@ -69,6 +69,7 @@ class AsyncPubsubHandler(logging.Handler):
         self._children = []
         for i in range(self._worker_size):
             t = Thread(target=self.send_loop)
+            t.daemon = True
             self._children.append(t)
             t.start()
 
