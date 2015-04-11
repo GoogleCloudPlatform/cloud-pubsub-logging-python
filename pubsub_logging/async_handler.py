@@ -64,14 +64,14 @@ class AsyncPubsubHandler(logging.Handler):
         super(AsyncPubsubHandler, self).__init__()
         self._topic = topic
         self._retry = retry
-        self._worker_size = worker_size
         self._client = client
         self._q = queue.BatchQueue(BATCH_SIZE)
         self._should_exit = False
         self._children = []
         self._timeout = timeout
+        self._threshold = BATCH_SIZE * 2
         self._buf = []
-        for i in range(self._worker_size):
+        for i in range(worker_size):
             t = Thread(target=self.send_loop)
             t.daemon = True
             self._children.append(t)
@@ -103,16 +103,15 @@ class AsyncPubsubHandler(logging.Handler):
     def emit(self, record):
         """Puts the record to the internal queue."""
         self._buf.append(record)
-        if len(self._buf) >= BATCH_SIZE:
-            self._q.put(self._buf)
+        if len(self._buf) >= self._threshold:
+            self._q.put_multi(self._buf)
             self._buf = []
 
     def flush(self):
         """Blocks until the queue becomes empty."""
         with self.lock:
-            if len(self._buf):
-                self._q.put(self._buf)
-                self._buf = []
+            self._q.put_multi(self._buf)
+            self._buf = []
             self._q.join()
 
     def close(self):

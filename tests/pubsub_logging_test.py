@@ -65,10 +65,25 @@ class BatchQueueTest(unittest.TestCase):
             self.q.task_done(num=1)
         self.assertRaises(ValueError, q_task_done)
 
-    def test_put_and_get(self):
+    def test_put_multi_and_get_fewer_than_batch_size(self):
         """Test basic put and get operation."""
         values = [1, 2, 3]
-        self.q.put(values)
+        self.q.put_multi(values)
+        got = self.q.get(timeout=0.1)
+        self.assertEqual(values, got)
+
+    def test_put_multi_and_get(self):
+        """Test basic put and get operation."""
+        values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        self.q.put_multi(values)
+        got = self.q.get(timeout=0.1)
+        self.assertEqual(values, got)
+
+    def test_put_and_get(self):
+        """Test basic put and get operation."""
+        values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        for v in values:
+            self.q.put(v)
         got = self.q.get(timeout=0.1)
         self.assertEqual(values, got)
 

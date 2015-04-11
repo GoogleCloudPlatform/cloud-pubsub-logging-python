@@ -16,8 +16,10 @@
 """Utilities for the Python logging handlers."""
 
 import base64
+import os
 import sys
 import threading
+import time
 
 from googleapiclient import discovery
 from googleapiclient import errors
@@ -84,8 +86,12 @@ def publish_body(client, body, topic, retry):
                        intermittent errors.
     """
     try:
+        before = time.time()
         client.projects().topics().publish(
             topic=topic, body=body).execute(num_retries=retry)
+        if os.environ.get('PSHANDLER_DEBUG', None):  # pragma: NO COVER
+            sys.stderr.write('Took %f secs for sending %d messages.\n' %
+                             (time.time() - before, len(body['messages'])))
     except errors.HttpError as e:
         if e.resp.status >= 400 and e.resp.status < 500:
             # Publishing failed for some non-recoverable reason. For

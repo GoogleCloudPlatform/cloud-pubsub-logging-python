@@ -53,9 +53,13 @@ class BatchQueue(object):
         """Returns the size of the queue."""
         return len(self._q)
 
-    def _put(self, items):
-        """Puts a new item in the queue."""
+    def _put_multi(self, items):
+        """Puts new items in the queue."""
         self._q.extend(items)
+
+    def _put(self, item):
+        """Puts a new item in the queue."""
+        self._q.append(item)
 
     def _get(self):
         """Returns an item from the queue."""
@@ -99,15 +103,27 @@ class BatchQueue(object):
             while self.unfinished_tasks:
                 self.done.wait()
 
-    def put(self, items):
+    def put_multi(self, items):
         """Put items into the queue.
 
         Args:
           items: Items to put into the queue.
         """
         with self._mutex:
-            self._put(items)
+            self._put_multi(items)
             self.unfinished_tasks += len(items)
+            if self._qsize() >= self._batch_size:
+                self.has_plenty.notify()
+
+    def put(self, item):
+        """Put an item into the queue.
+
+        Args:
+          item: An item to put into the queue.
+        """
+        with self._mutex:
+            self._put(item)
+            self.unfinished_tasks += 1
             if self._qsize() >= self._batch_size:
                 self.has_plenty.notify()
 

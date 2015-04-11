@@ -13,37 +13,65 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A example script for Pub/Sub logging handler."""
+"""A example script for Pub/Sub logging handlers."""
 
+import argparse
 import logging
 import logging.config
 import logging.handlers
 import os
 import sys
+import time
 
+from pubsub_logging import AsyncPubsubHandler
 from pubsub_logging import PubsubHandler
 
 
 def main():
-    logger = None
-    if len(sys.argv) == 2:
-        topic = sys.argv[1]
-        pubsub_handler = PubsubHandler(topic=topic)
-        pubsub_handler.setFormatter(
-            logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-
-        logger = logging.getLogger('root')
-        logger.setLevel(logging.DEBUG)
-        logger.addHandler(pubsub_handler)
+    parser = argparse.ArgumentParser(description='Testing AsyncPubsubHandler')
+    parser.add_argument('-m', '--num_messages', metavar='N', type=int,
+                        default=100000, help='number of messages')
+    parser.add_argument('-w', '--num_workers', metavar='N', type=int,
+                        default=20, help='number of workers')
+    parser.add_argument('-t', '--timeout', metavar='D', type=float,
+                        default=1, help='timeout for the BatchQueue.get')
+    parser.add_argument('--async', dest='async', action='store_true')
+    parser.add_argument('--no-async', dest='async', action='store_false')
+    parser.set_defaults(async=True)
+    parser.add_argument('--debug', dest='debug', action='store_true')
+    parser.add_argument('--no-debug', dest='debug', action='store_false')
+    parser.set_defaults(debug=False)
+    parser.add_argument('topic', default='')
+    args = parser.parse_args()
+    num = args.num_messages
+    workers = args.num_workers
+    topic = args.topic
+    if args.debug:
+        os.environ['PSHANDLER_DEBUG'] = 'true'
+    if args.async:
+        sys.stderr.write('Using AsyncPubsubHandler.\n')
+        pubsub_handler = AsyncPubsubHandler(topic, workers,
+                                            timeout=args.timeout)
     else:
-        logging.config.fileConfig(
-            os.path.join(
-                os.path.abspath(os.path.dirname(__file__)), 'logging.conf'))
-        logger = logging.getLogger('root')
-    for i in range(99):
+        sys.stderr.write('Using PubsubHandler.\n')
+        pubsub_handler = PubsubHandler(topic=topic)
+    pubsub_handler.setFormatter(
+        logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger = logging.getLogger('root')
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(pubsub_handler)
+
+    before = time.time()
+    for i in range(num):
         logger.info('log message %03d.', i)
-    logger.critical('Flushing')
+    elapsed = time.time() - before
+    sys.stderr.write('Took %f secs for buffering %d messages: %f mps.\n' %
+                     (elapsed, num, num/elapsed))
+    pubsub_handler.flush()
+    elapsed = time.time() - before
+    sys.stderr.write('Took %f secs for sending %d messages: %f mps.\n' %
+                     (elapsed, num, num/elapsed))
 
 
 if __name__ == '__main__':
