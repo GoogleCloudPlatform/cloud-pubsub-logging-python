@@ -31,7 +31,6 @@ try:
 except ImportError:  # pragma: NO COVER
     from Queue import Empty
 
-from collections import deque
 from threading import Thread
 
 from pubsub_logging import queue
@@ -71,7 +70,7 @@ class AsyncPubsubHandler(logging.Handler):
         self._should_exit = False
         self._children = []
         self._timeout = timeout
-        self._buf = deque()
+        self._buf = []
         for i in range(self._worker_size):
             t = Thread(target=self.send_loop)
             t.daemon = True
@@ -104,21 +103,22 @@ class AsyncPubsubHandler(logging.Handler):
     def emit(self, record):
         """Puts the record to the internal queue."""
         self._buf.append(record)
-        if len(self._buf) == BATCH_SIZE:
+        if len(self._buf) >= BATCH_SIZE:
             self._q.put(self._buf)
-            self._buf.clear()
+            self._buf = []
 
     def flush(self):
         """Blocks until the queue becomes empty."""
         with self.lock:
             if len(self._buf):
                 self._q.put(self._buf)
-                self._buf.clear()
+                self._buf = []
             self._q.join()
 
     def close(self):
         """Joins the child threads and call the superclass's close."""
         with self.lock:
+            self.flush()
             self._should_exit = True
             for t in self._children:
                 t.join()
