@@ -28,27 +28,29 @@ import logging
 
 try:
     from queue import Empty
-    from queue import Queue  # pragma: NO COVER
-except ImportError:
+except ImportError:  # pragma: NO COVER
     from Queue import Empty
-    from Queue import Queue
 
+from collections import deque
 from threading import Thread
 
+from pubsub_logging import queue
 from pubsub_logging.utils import compat_urlsafe_b64encode
 from pubsub_logging.utils import get_pubsub_client
 from pubsub_logging.utils import publish_body
 
 
+BATCH_SIZE = 1000
 DEFAULT_WORKER_SIZE = 1
 DEFAULT_RETRY_COUNT = 10
-MAX_BATCH_SIZE = 1000
+DEFAULT_TIMEOUT = 1
 
 
 class AsyncPubsubHandler(logging.Handler):
     """A logging handler to publish logs to Cloud Pub/Sub in background."""
     def __init__(self, topic, worker_size=DEFAULT_WORKER_SIZE,
-                 retry=DEFAULT_RETRY_COUNT, client=None):
+                 retry=DEFAULT_RETRY_COUNT, timeout=DEFAULT_TIMEOUT,
+                 client=None):
         """The constructor of the handler.
 
         Args:
@@ -56,6 +58,7 @@ class AsyncPubsubHandler(logging.Handler):
           worker_size: The initial worker size.
           retry: How many times to retry upon Cloud Pub/Sub API failure,
                  defaults to 5.
+          timeout: Timeout for BatchQueue.get.
           client: An optional Cloud Pub/Sub client to use. If not set, one is
                   built automatically, defaults to None.
         """
@@ -64,9 +67,11 @@ class AsyncPubsubHandler(logging.Handler):
         self._retry = retry
         self._worker_size = worker_size
         self._client = client
-        self._q = Queue()
+        self._q = queue.BatchQueue(BATCH_SIZE)
         self._should_exit = False
         self._children = []
+        self._timeout = timeout
+        self._buf = deque()
         for i in range(self._worker_size):
             t = Thread(target=self.send_loop)
             t.daemon = True
@@ -81,14 +86,10 @@ class AsyncPubsubHandler(logging.Handler):
             client = get_pubsub_client()
         while not self._should_exit:
             logs = []
-            num = 0
-            for i in range(MAX_BATCH_SIZE):
-                try:
-                    item = self._q.get(True, 0.1)
-                    logs.append(item)
-                    num += 1
-                except Empty:
-                    break
+            try:
+                logs = self._q.get(timeout=self._timeout)
+            except Empty:
+                pass
             if not logs:
                 continue
             try:
@@ -98,20 +99,27 @@ class AsyncPubsubHandler(logging.Handler):
                 publish_body(client, body, self._topic, self._retry)
             except Exception:
                 pass
-            for i in range(num):
-                self._q.task_done()
+            self._q.task_done(len(logs))
 
     def emit(self, record):
         """Puts the record to the internal queue."""
-        self._q.put(record)
+        self._buf.append(record)
+        if len(self._buf) == BATCH_SIZE:
+            self._q.put(self._buf)
+            self._buf.clear()
 
     def flush(self):
         """Blocks until the queue becomes empty."""
-        self._q.join()
+        with self.lock:
+            if len(self._buf):
+                self._q.put(self._buf)
+                self._buf.clear()
+            self._q.join()
 
     def close(self):
         """Joins the child threads and call the superclass's close."""
-        self._should_exit = True
-        for t in self._children:
-            t.join()
+        with self.lock:
+            self._should_exit = True
+            for t in self._children:
+                t.join()
         super(AsyncPubsubHandler, self).close()

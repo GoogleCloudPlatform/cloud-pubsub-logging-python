@@ -28,6 +28,7 @@ from mock import patch
 
 import pubsub_logging
 
+from pubsub_logging import queue
 from pubsub_logging.errors import RecoverableError
 from pubsub_logging.utils import compat_urlsafe_b64encode
 from pubsub_logging.utils import publish_body
@@ -44,6 +45,32 @@ class CompatBase64Test(unittest.TestCase):
         # Python3 route
         result = compat_urlsafe_b64encode(v, True)
         self.assertEqual(expected, result)
+
+
+class BatchQueueTest(unittest.TestCase):
+    """Test for queue.BatchQueue."""
+
+    def setUp(self):
+        self.q = queue.BatchQueue(batch_size=10)
+
+    def test_negative_timeout_raises_ValueError(self):
+        """Test if it raises ValueError with negative timeout."""
+        def q_get():
+            self.q.get(timeout=-1)
+        self.assertRaises(ValueError, q_get)
+
+    def test_too_much_task_done_raises_ValueError(self):
+        """Test if it raises ValueError with too much task_done calls."""
+        def q_task_done():
+            self.q.task_done(num=1)
+        self.assertRaises(ValueError, q_task_done)
+
+    def test_put_and_get(self):
+        """Test basic put and get operation."""
+        values = [1, 2, 3]
+        self.q.put(values)
+        got = self.q.get(timeout=0.1)
+        self.assertEqual(values, got)
 
 
 class PublishBodyTest(unittest.TestCase):
@@ -133,7 +160,7 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
         self.topic = 'projects/test-project/topics/test-topic'
         self.handler = pubsub_logging.AsyncPubsubHandler(
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
-            worker_size=10)
+            worker_size=10, timeout=0)
 
     def tearDown(self):
         self.handler.close()
