@@ -13,7 +13,7 @@ You can use the pubsub_logging.PubsubHandler to publish the logs to `Cloud Pub/S
 Supported version
 -----------------
 
-Python 2.7 is supported.
+Python 2.7 and Python 3.4 are supported.
 
 Installation
 ------------

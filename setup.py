@@ -7,6 +7,7 @@ except ImportError:
 
 pubsub_logging_classifiers = [
     'Programming Language :: Python :: 2',
+    'Programming Language :: Python :: 3',
     'Intended Audience :: Developers',
     'License :: OSI Approved :: Apache Software License',
     'Topic :: Software Development :: Libraries',
