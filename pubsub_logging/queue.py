@@ -109,7 +109,7 @@ class BatchQueue(object):
         Args:
           items: Items to put into the queue.
         """
-        with self._mutex:
+        with self.has_plenty:
             self._put_multi(items)
             self.unfinished_tasks += len(items)
             if self._qsize() >= self._batch_size:
@@ -121,7 +121,7 @@ class BatchQueue(object):
         Args:
           item: An item to put into the queue.
         """
-        with self._mutex:
+        with self.has_plenty:
             self._put(item)
             self.unfinished_tasks += 1
             if self._qsize() >= self._batch_size:
