@@ -28,12 +28,13 @@ import logging
 
 try:
     from queue import Empty
+    from queue import Queue  # pragma: NO COVER
 except ImportError:  # pragma: NO COVER
     from Queue import Empty
+    from Queue import Queue
 
 from threading import Thread
 
-from pubsub_logging import queue
 from pubsub_logging.utils import compat_urlsafe_b64encode
 from pubsub_logging.utils import get_pubsub_client
 from pubsub_logging.utils import publish_body
@@ -65,11 +66,11 @@ class AsyncPubsubHandler(logging.Handler):
         self._topic = topic
         self._retry = retry
         self._client = client
-        self._q = queue.BatchQueue(BATCH_SIZE)
+        self._q = Queue()
         self._should_exit = False
         self._children = []
         self._timeout = timeout
-        self._threshold = BATCH_SIZE * 2
+        self._threshold = BATCH_SIZE
         self._buf = []
         for i in range(worker_size):
             t = Thread(target=self.send_loop)
@@ -86,7 +87,7 @@ class AsyncPubsubHandler(logging.Handler):
         while not self._should_exit:
             logs = []
             try:
-                logs = self._q.get(timeout=self._timeout)
+                logs = self._q.get(block=True, timeout=self._timeout)
             except Empty:
                 pass
             if not logs:
@@ -98,20 +99,21 @@ class AsyncPubsubHandler(logging.Handler):
                 publish_body(client, body, self._topic, self._retry)
             except Exception:
                 pass
-            self._q.task_done(len(logs))
+            self._q.task_done()
 
     def emit(self, record):
         """Puts the record to the internal queue."""
         self._buf.append(record)
-        if len(self._buf) >= self._threshold:
-            self._q.put_multi(self._buf)
+        if len(self._buf) == self._threshold:
+            self._q.put(self._buf)
             self._buf = []
 
     def flush(self):
         """Blocks until the queue becomes empty."""
         with self.lock:
-            self._q.put_multi(self._buf)
-            self._buf = []
+            if self._buf:
+                self._q.put(self._buf)
+                self._buf = []
             self._q.join()
 
     def close(self):

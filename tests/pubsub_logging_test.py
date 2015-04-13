@@ -28,7 +28,6 @@ from mock import patch
 
 import pubsub_logging
 
-from pubsub_logging import queue
 from pubsub_logging.errors import RecoverableError
 from pubsub_logging.utils import compat_urlsafe_b64encode
 from pubsub_logging.utils import publish_body
@@ -45,47 +44,6 @@ class CompatBase64Test(unittest.TestCase):
         # Python3 route
         result = compat_urlsafe_b64encode(v, True)
         self.assertEqual(expected, result)
-
-
-class BatchQueueTest(unittest.TestCase):
-    """Test for queue.BatchQueue."""
-
-    def setUp(self):
-        self.q = queue.BatchQueue(batch_size=10)
-
-    def test_negative_timeout_raises_ValueError(self):
-        """Test if it raises ValueError with negative timeout."""
-        def q_get():
-            self.q.get(timeout=-1)
-        self.assertRaises(ValueError, q_get)
-
-    def test_too_much_task_done_raises_ValueError(self):
-        """Test if it raises ValueError with too much task_done calls."""
-        def q_task_done():
-            self.q.task_done(num=1)
-        self.assertRaises(ValueError, q_task_done)
-
-    def test_put_multi_and_get_fewer_than_batch_size(self):
-        """Test basic put and get operation."""
-        values = [1, 2, 3]
-        self.q.put_multi(values)
-        got = self.q.get(timeout=0.1)
-        self.assertEqual(values, got)
-
-    def test_put_multi_and_get(self):
-        """Test basic put and get operation."""
-        values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        self.q.put_multi(values)
-        got = self.q.get(timeout=0.1)
-        self.assertEqual(values, got)
-
-    def test_put_and_get(self):
-        """Test basic put and get operation."""
-        values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        for v in values:
-            self.q.put(v)
-        got = self.q.get(timeout=0.1)
-        self.assertEqual(values, got)
 
 
 class PublishBodyTest(unittest.TestCase):
