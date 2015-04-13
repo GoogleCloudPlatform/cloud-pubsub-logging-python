@@ -17,7 +17,7 @@
 
 
 import logging
-import threading
+import multiprocessing as mp
 import unittest
 
 from apiclient import errors
@@ -115,13 +115,12 @@ class PublishBodyTest(unittest.TestCase):
 class CountPublishBody(object):
     """A simple counter that counts total number of messages."""
     def __init__(self):
-        self.cnt = 0
-        self.lock = threading.Lock()
+        self.cnt = mp.Value('i', 0)
+        self.lock = mp.Lock()
 
     def __call__(self, client, body, topic, retry):
-        self.lock.acquire()
-        self.cnt += len(body['messages'])
-        self.lock.release()
+        with self.lock:
+            self.cnt.value += len(body['messages'])
 
 
 class AsyncPubsubHandlerTest(unittest.TestCase):
@@ -131,9 +130,10 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
     def setUp(self):
         self.mocked_client = mock.MagicMock()
         self.topic = 'projects/test-project/topics/test-topic'
+        self.counter = CountPublishBody()
         self.handler = pubsub_logging.AsyncPubsubHandler(
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
-            worker_size=10, timeout=0)
+            worker_size=10, timeout=0.1, publish_body=self.counter)
 
     def tearDown(self):
         self.handler.close()
@@ -143,35 +143,10 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
         log_msg = 'Test message'
         r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
                               None)
-        expected_payload = compat_urlsafe_b64encode(log_msg)
-        expected_body = {'messages': [{'data': expected_payload}]}
-        counter = CountPublishBody()
-        with patch('pubsub_logging.async_handler.publish_body',
-                   side_effect=counter) as publish_body:
-            self.handler.emit(r)
-            self.handler.flush()
-            self.assertEqual(1, counter.cnt)
-            publish_body.assert_called_once_with(
-                self.mocked_client, expected_body, self.topic, self.RETRY)
-
-    def test_ignores_exceptions(self):
-        """Tests if the handler ignores exceptions and drop the logs."""
-        log_msg = 'Test message'
-        r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
-                              None)
-        expected_payload = compat_urlsafe_b64encode(log_msg)
-        expected_body = {'messages': [{'data': expected_payload}]}
-        counter = CountPublishBody()
-        with patch('pubsub_logging.async_handler.publish_body',
-                   side_effect=Exception()) as publish_body:
-            self.handler.emit(r)
-            self.handler.flush()
-            publish_body.side_effect = counter
-            self.handler.emit(r)
-            self.handler.flush()
-            self.assertEqual(1, counter.cnt)
-            publish_body.assert_called_twice_with(
-                self.mocked_client, expected_body, self.topic, self.RETRY)
+        self.handler.emit(r)
+        self.handler.flush()
+        with self.counter.lock:
+            self.assertEqual(1, self.counter.cnt.value)
 
     def test_total_message_count(self):
         """Tests if utils.publish_body is called with 10000 message."""
@@ -179,13 +154,11 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
         r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
                               None)
         num = 10000
-        counter = CountPublishBody()
-        with patch('pubsub_logging.async_handler.publish_body',
-                   side_effect=counter):
-            for i in range(num):
-                self.handler.emit(r)
-            self.handler.flush()
-            self.assertEqual(num, counter.cnt)
+        for i in range(num):
+            self.handler.emit(r)
+        self.handler.flush()
+        with self.counter.lock:
+            self.assertEqual(num, self.counter.cnt.value)
 
 
 class PubsubHandlerTest(unittest.TestCase):

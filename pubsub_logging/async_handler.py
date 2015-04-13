@@ -25,15 +25,12 @@ background.
 """
 
 import logging
+import multiprocessing as mp
 
 try:
     from queue import Empty
-    from queue import Queue  # pragma: NO COVER
 except ImportError:  # pragma: NO COVER
     from Queue import Empty
-    from Queue import Queue
-
-from threading import Thread
 
 from pubsub_logging.utils import compat_urlsafe_b64encode
 from pubsub_logging.utils import get_pubsub_client
@@ -50,7 +47,7 @@ class AsyncPubsubHandler(logging.Handler):
     """A logging handler to publish logs to Cloud Pub/Sub in background."""
     def __init__(self, topic, worker_size=DEFAULT_WORKER_SIZE,
                  retry=DEFAULT_RETRY_COUNT, timeout=DEFAULT_TIMEOUT,
-                 client=None):
+                 client=None, publish_body=publish_body):
         """The constructor of the handler.
 
         Args:
@@ -61,33 +58,36 @@ class AsyncPubsubHandler(logging.Handler):
           timeout: Timeout for BatchQueue.get.
           client: An optional Cloud Pub/Sub client to use. If not set, one is
                   built automatically, defaults to None.
+          publish_body: A callable for publishing the Pub/Sub message,
+                        just for testing purpose.
         """
         super(AsyncPubsubHandler, self).__init__()
         self._topic = topic
         self._retry = retry
         self._client = client
-        self._q = Queue()
-        self._should_exit = False
+        self._q = mp.JoinableQueue()
+        self._should_exit = mp.Value('i', 0)
         self._children = []
         self._timeout = timeout
         self._threshold = BATCH_SIZE
         self._buf = []
+        self._publish_body = publish_body
         for i in range(worker_size):
-            t = Thread(target=self.send_loop)
-            t.daemon = True
-            self._children.append(t)
-            t.start()
+            p = mp.Process(target=self.send_loop, args=(self._q,))
+            p.daemon = True
+            self._children.append(p)
+            p.start()
 
-    def send_loop(self):
+    def send_loop(self, q):  # pragma: NO COVER
         """Thread loop for indefinitely sending logs to Cloud Pub/Sub."""
         if self._client:
             client = self._client
         else:  # pragma: NO COVER
             client = get_pubsub_client()
-        while not self._should_exit:
+        while not self._should_exit.value:
             logs = []
             try:
-                logs = self._q.get(block=True, timeout=self._timeout)
+                logs = q.get(block=True, timeout=self._timeout)
             except Empty:
                 pass
             if not logs:
@@ -96,10 +96,10 @@ class AsyncPubsubHandler(logging.Handler):
                 body = {'messages':
                         [{'data': compat_urlsafe_b64encode(self.format(r))}
                             for r in logs]}
-                publish_body(client, body, self._topic, self._retry)
+                self._publish_body(client, body, self._topic, self._retry)
             except Exception:
                 pass
-            self._q.task_done()
+            q.task_done()
 
     def emit(self, record):
         """Puts the record to the internal queue."""
@@ -120,7 +120,7 @@ class AsyncPubsubHandler(logging.Handler):
         """Joins the child threads and call the superclass's close."""
         with self.lock:
             self.flush()
-            self._should_exit = True
-            for t in self._children:
-                t.join()
+            self._should_exit.value = 1
+            for p in self._children:
+                p.join()
         super(AsyncPubsubHandler, self).close()
