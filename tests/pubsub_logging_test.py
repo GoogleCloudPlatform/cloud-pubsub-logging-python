@@ -169,13 +169,7 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
         r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
                               None)
 
-        # RecoverableError should be ignored.
-        self.handler.emit(r)
-        self.handler.flush()
-        with self.counter.lock:
-            self.assertEqual(0, self.counter.cnt.value)
-
-        # The second call will succeed. The first log was thrown away.
+        # RecoverableError should be ignored, and retried.
         self.handler.emit(r)
         self.handler.close()
         with self.counter.lock:

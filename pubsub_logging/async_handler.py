@@ -33,6 +33,8 @@ try:
 except ImportError:  # pragma: NO COVER
     from Queue import Empty
 
+from pubsub_logging import errors
+
 from pubsub_logging.utils import compat_urlsafe_b64encode
 from pubsub_logging.utils import get_pubsub_client
 from pubsub_logging.utils import publish_body
@@ -105,8 +107,16 @@ class AsyncPubsubHandler(logging.Handler):
                             for r in logs]}
                 self._publish_body(client, body, self._topic, self._retry,
                                    debug=self._debug_output)
+            except errors.RecoverableError as e:
+                # Records the exception and puts the logs back to the deque
+                # and prints the exception to stderr.
+                q.put(logs)
+                self._stderr_logger.exception(e)
             except Exception as e:
                 self._stderr_logger.exception(e)
+                self._stderr_logger.warn('There was a non recoverable error, '
+                                         'exiting.')
+                exit()
             q.task_done()
 
     def emit(self, record):
