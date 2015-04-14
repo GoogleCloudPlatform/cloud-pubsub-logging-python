@@ -15,9 +15,9 @@
 
 """Python logging handler implementation for Cloud Pub/Sub.
 
-This module has logging.Handler implementation which sends the logs to
-Cloud Pub/Sub[1] asynchronously. The logs are kept in an internal
-queue and child workers will pick them up and send them in
+This module provides a logging.Handler implementation which sends the
+logs to Cloud Pub/Sub[1] asynchronously. The logs are kept in an
+internal queue and child workers will pick them up and send them in
 background.
 
 [1]: https://cloud.google.com/pubsub/docs
@@ -26,6 +26,7 @@ background.
 
 import logging
 import multiprocessing as mp
+import os
 
 try:
     from queue import Empty
@@ -47,7 +48,7 @@ class AsyncPubsubHandler(logging.Handler):
     """A logging handler to publish logs to Cloud Pub/Sub in background."""
     def __init__(self, topic, worker_size=DEFAULT_WORKER_SIZE,
                  retry=DEFAULT_RETRY_COUNT, timeout=DEFAULT_TIMEOUT,
-                 client=None, publish_body=publish_body):
+                 client=None, publish_body=publish_body, stderr_logger=None):
         """The constructor of the handler.
 
         Args:
@@ -59,7 +60,7 @@ class AsyncPubsubHandler(logging.Handler):
           client: An optional Cloud Pub/Sub client to use. If not set, one is
                   built automatically, defaults to None.
           publish_body: A callable for publishing the Pub/Sub message,
-                        just for testing purpose.
+                        just for testing purposes.
         """
         super(AsyncPubsubHandler, self).__init__()
         self._topic = topic
@@ -72,6 +73,12 @@ class AsyncPubsubHandler(logging.Handler):
         self._threshold = BATCH_SIZE
         self._buf = []
         self._publish_body = publish_body
+        if stderr_logger:
+            self._stderr_logger = stderr_logger
+        else:
+            self._stderr_logger = logging.Logger('last_resort')
+            self._stderr_logger.addHandler(logging.StreamHandler())
+        self._debug_output = os.environ.get('PSHANDLER_DEBUG', False)
         for i in range(worker_size):
             p = mp.Process(target=self.send_loop, args=(self._q,))
             p.daemon = True
@@ -79,7 +86,7 @@ class AsyncPubsubHandler(logging.Handler):
             p.start()
 
     def send_loop(self, q):  # pragma: NO COVER
-        """Thread loop for indefinitely sending logs to Cloud Pub/Sub."""
+        """Process loop for indefinitely sending logs to Cloud Pub/Sub."""
         if self._client:
             client = self._client
         else:  # pragma: NO COVER
@@ -96,9 +103,10 @@ class AsyncPubsubHandler(logging.Handler):
                 body = {'messages':
                         [{'data': compat_urlsafe_b64encode(self.format(r))}
                             for r in logs]}
-                self._publish_body(client, body, self._topic, self._retry)
-            except Exception:
-                pass
+                self._publish_body(client, body, self._topic, self._retry,
+                                   debug=self._debug_output)
+            except Exception as e:
+                self._stderr_logger.exception(e)
             q.task_done()
 
     def emit(self, record):
@@ -117,7 +125,7 @@ class AsyncPubsubHandler(logging.Handler):
             self._q.join()
 
     def close(self):
-        """Joins the child threads and call the superclass's close."""
+        """Joins the child processes and call the superclass's close."""
         with self.lock:
             self.flush()
             self._should_exit.value = 1

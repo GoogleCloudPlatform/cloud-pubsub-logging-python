@@ -16,7 +16,6 @@
 """Utilities for the Python logging handlers."""
 
 import base64
-import os
 import sys
 import threading
 import time
@@ -70,7 +69,7 @@ def get_pubsub_client(http=None):  # pragma: NO COVER
     return clients.client
 
 
-def publish_body(client, body, topic, retry):
+def publish_body(client, body, topic, retry, debug=False):
     """Publishes the specified body to Cloud Pub/Sub.
 
     Args:
@@ -89,7 +88,7 @@ def publish_body(client, body, topic, retry):
         before = time.time()
         client.projects().topics().publish(
             topic=topic, body=body).execute(num_retries=retry)
-        if os.environ.get('PSHANDLER_DEBUG', None):  # pragma: NO COVER
+        if debug:  # pragma: NO COVER
             sys.stderr.write('Took %f secs for sending %d messages.\n' %
                              (time.time() - before, len(body['messages'])))
     except errors.HttpError as e:

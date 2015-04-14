@@ -114,11 +114,19 @@ class PublishBodyTest(unittest.TestCase):
 
 class CountPublishBody(object):
     """A simple counter that counts total number of messages."""
-    def __init__(self):
+    def __init__(self, mock=None):
+        """Initializes this mock.
+
+        Args:
+          mock: A mock object that we call before update the counter.
+        """
         self.cnt = mp.Value('i', 0)
         self.lock = mp.Lock()
+        self._mock = mock
 
-    def __call__(self, client, body, topic, retry):
+    def __call__(self, client, body, topic, retry, debug=False):
+        if self._mock:
+            self._mock(client, body, topic, retry, debug)
         with self.lock:
             self.cnt.value += len(body['messages'])
 
@@ -130,33 +138,62 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
     def setUp(self):
         self.mocked_client = mock.MagicMock()
         self.topic = 'projects/test-project/topics/test-topic'
-        self.counter = CountPublishBody()
-        self.handler = pubsub_logging.AsyncPubsubHandler(
-            topic=self.topic, client=self.mocked_client, retry=self.RETRY,
-            worker_size=10, timeout=0.1, publish_body=self.counter)
-
-    def tearDown(self):
-        self.handler.close()
 
     def test_single_message(self):
         """Tests if utils.publish_body is called with one message."""
+        self.counter = CountPublishBody()
+        self.handler = pubsub_logging.AsyncPubsubHandler(
+            topic=self.topic, client=self.mocked_client, retry=self.RETRY,
+            worker_size=1, timeout=0.1, publish_body=self.counter)
         log_msg = 'Test message'
         r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
                               None)
         self.handler.emit(r)
+        self.handler.close()
+        with self.counter.lock:
+            self.assertEqual(1, self.counter.cnt.value)
+
+    def test_handler_ignores_error(self):
+        """Tests if the handler ignores errors and throws the logs away."""
+        mock_publish_body = mock.MagicMock()
+        mock_publish_body.side_effect = [RecoverableError(), mock.DEFAULT]
+        self.counter = CountPublishBody(mock=mock_publish_body)
+        # For suppressing the output.
+        devnull = logging.Logger('devnull')
+        devnull.addHandler(logging.NullHandler())
+        self.handler = pubsub_logging.AsyncPubsubHandler(
+            topic=self.topic, client=self.mocked_client, retry=self.RETRY,
+            worker_size=1, timeout=0.1, publish_body=self.counter,
+            stderr_logger=devnull)
+        log_msg = 'Test message'
+        r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
+                              None)
+
+        # RecoverableError should be ignored.
+        self.handler.emit(r)
         self.handler.flush()
+        with self.counter.lock:
+            self.assertEqual(0, self.counter.cnt.value)
+
+        # The second call will succeed. The first log was thrown away.
+        self.handler.emit(r)
+        self.handler.close()
         with self.counter.lock:
             self.assertEqual(1, self.counter.cnt.value)
 
     def test_total_message_count(self):
         """Tests if utils.publish_body is called with 10000 message."""
+        self.counter = CountPublishBody()
+        self.handler = pubsub_logging.AsyncPubsubHandler(
+            topic=self.topic, client=self.mocked_client, retry=self.RETRY,
+            worker_size=10, timeout=0.1, publish_body=self.counter)
         log_msg = 'Test message'
         r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
                               None)
         num = 10000
         for i in range(num):
             self.handler.emit(r)
-        self.handler.flush()
+        self.handler.close()
         with self.counter.lock:
             self.assertEqual(num, self.counter.cnt.value)
 

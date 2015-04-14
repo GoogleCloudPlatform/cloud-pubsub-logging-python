@@ -47,6 +47,7 @@ def main():
     workers = args.num_workers
     topic = args.topic
     if args.debug:
+        # For debug output in utils module.
         os.environ['PSHANDLER_DEBUG'] = 'true'
     if args.async:
         sys.stderr.write('Using AsyncPubsubHandler.\n')

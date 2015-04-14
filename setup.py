@@ -28,7 +28,7 @@ setup(
     author_email='tmatsuo@google.com',
     url='https://github.com/GoogleCloudPlatform/cloud-pubsub-logging-python',
     packages=['pubsub_logging'],
-    description="A logging handler for publishing the logs to Cloud Pub/Sub",
+    description="Logging handlers for publishing the logs to Cloud Pub/Sub",
     install_requires=REQUIREMENTS,
     long_description=pubsub_logging_long_description,
     license='Apache 2.0',
