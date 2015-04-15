@@ -19,7 +19,6 @@ import argparse
 import logging
 import logging.config
 import logging.handlers
-import os
 import sys
 import time
 
@@ -46,16 +45,14 @@ def main():
     num = args.num_messages
     workers = args.num_workers
     topic = args.topic
-    if args.debug:
-        # For debug output in utils module.
-        os.environ['PSHANDLER_DEBUG'] = 'true'
     if args.async:
         sys.stderr.write('Using AsyncPubsubHandler.\n')
         pubsub_handler = AsyncPubsubHandler(topic, workers,
-                                            timeout=args.timeout)
+                                            timeout=args.timeout,
+                                            debug=args.debug)
     else:
         sys.stderr.write('Using PubsubHandler.\n')
-        pubsub_handler = PubsubHandler(topic=topic)
+        pubsub_handler = PubsubHandler(topic=topic, debug=args.debug)
     pubsub_handler.setFormatter(
         logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))

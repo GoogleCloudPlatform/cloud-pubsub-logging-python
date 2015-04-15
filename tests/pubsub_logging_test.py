@@ -273,7 +273,8 @@ class PubsubHandlerFlushTest(unittest.TestCase):
 
         self.handler.flush()
         publish_body.assert_called_once_with(
-            self.mocked_client, self.expected_body, self.topic, self.RETRY)
+            self.mocked_client, self.expected_body, self.topic, self.RETRY,
+            debug=False)
         self.assertEqual(0, len(self.handler.buffer))
 
     @patch('pubsub_logging.pubsub_handler.publish_body')
@@ -295,7 +296,8 @@ class PubsubHandlerFlushTest(unittest.TestCase):
         self.handler.flush()
 
         publish_body.assert_called_once_with(
-            self.mocked_client, self.expected_body, self.topic, self.RETRY)
+            self.mocked_client, self.expected_body, self.topic, self.RETRY,
+            debug=False)
         self.assertEqual(1, len(self.handler.buffer))
 
     @patch('pubsub_logging.pubsub_handler.publish_body')
@@ -307,5 +309,6 @@ class PubsubHandlerFlushTest(unittest.TestCase):
         self.handler.flush()
 
         publish_body.assert_called_once_with(
-            self.mocked_client, self.expected_body, self.topic, self.RETRY)
+            self.mocked_client, self.expected_body, self.topic, self.RETRY,
+            debug=False)
         self.assertEqual(0, len(self.handler.buffer))

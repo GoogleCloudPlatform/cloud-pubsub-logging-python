@@ -47,7 +47,7 @@ MAX_BATCH_SIZE = 1000
 
 class PubsubHandler(logging.handlers.BufferingHandler):
     """A logging handler to publish log messages to Cloud Pub/Sub."""
-    def __init__(self, topic, capacity=DEFAULT_BATCH_NUM,
+    def __init__(self, topic, capacity=DEFAULT_BATCH_NUM, debug=False,
                  retry=DEFAULT_RETRY_COUNT, flush_level=logging.CRITICAL,
                  buf_hard_limit=-1, client=None):
         """The constructor of the handler.
@@ -55,6 +55,7 @@ class PubsubHandler(logging.handlers.BufferingHandler):
         Args:
           topic: Cloud Pub/Sub topic name to send the logs.
           capacity: The maximum buffer size, defaults to 1000.
+          debug: A flag for debug output.
           retry: How many times to retry upon Cloud Pub/Sub API failure,
                  defaults to 5.
           flush_level: Minimum log level that, when seen, will flush the logs,
@@ -66,6 +67,7 @@ class PubsubHandler(logging.handlers.BufferingHandler):
         """
         super(PubsubHandler, self).__init__(capacity)
         self._topic = topic
+        self._debug = debug
         self._retry = retry
         self._flush_level = flush_level
         self._buf_hard_limit = buf_hard_limit
@@ -82,7 +84,8 @@ class PubsubHandler(logging.handlers.BufferingHandler):
                 body = {'messages':
                         [{'data': compat_urlsafe_b64encode(self.format(r))}
                             for r in self.buffer[:MAX_BATCH_SIZE]]}
-                publish_body(self._client, body, self._topic, self._retry)
+                publish_body(self._client, body, self._topic, self._retry,
+                             debug=self._debug)
                 self.buffer = self.buffer[MAX_BATCH_SIZE:]
         except RecoverableError:
             # Cloud Pub/Sub API didn't receive the logs, most

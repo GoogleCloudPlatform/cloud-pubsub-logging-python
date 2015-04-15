@@ -26,7 +26,6 @@ background.
 
 import logging
 import multiprocessing as mp
-import os
 
 try:
     from queue import Empty
@@ -48,7 +47,7 @@ DEFAULT_TIMEOUT = 1
 
 class AsyncPubsubHandler(logging.Handler):
     """A logging handler to publish logs to Cloud Pub/Sub in background."""
-    def __init__(self, topic, worker_size=DEFAULT_WORKER_SIZE,
+    def __init__(self, topic, worker_size=DEFAULT_WORKER_SIZE, debug=False,
                  retry=DEFAULT_RETRY_COUNT, timeout=DEFAULT_TIMEOUT,
                  client=None, publish_body=publish_body, stderr_logger=None):
         """The constructor of the handler.
@@ -56,6 +55,7 @@ class AsyncPubsubHandler(logging.Handler):
         Args:
           topic: Cloud Pub/Sub topic name to send the logs.
           worker_size: The initial worker size.
+          debug: A flag for debug output.
           retry: How many times to retry upon Cloud Pub/Sub API failure,
                  defaults to 5.
           timeout: Timeout for BatchQueue.get.
@@ -63,9 +63,11 @@ class AsyncPubsubHandler(logging.Handler):
                   built automatically, defaults to None.
           publish_body: A callable for publishing the Pub/Sub message,
                         just for testing purposes.
+          stderr_logger: A logger for informing failures with this logger.
         """
         super(AsyncPubsubHandler, self).__init__()
         self._topic = topic
+        self._debug = debug
         self._retry = retry
         self._client = client
         self._q = mp.JoinableQueue()
@@ -80,7 +82,6 @@ class AsyncPubsubHandler(logging.Handler):
         else:
             self._stderr_logger = logging.Logger('last_resort')
             self._stderr_logger.addHandler(logging.StreamHandler())
-        self._debug_output = os.environ.get('PSHANDLER_DEBUG', False)
         for i in range(worker_size):
             p = mp.Process(target=self.send_loop, args=(self._q,))
             p.daemon = True
@@ -106,7 +107,7 @@ class AsyncPubsubHandler(logging.Handler):
                         [{'data': compat_urlsafe_b64encode(self.format(r))}
                             for r in logs]}
                 self._publish_body(client, body, self._topic, self._retry,
-                                   debug=self._debug_output)
+                                   debug=self._debug)
             except errors.RecoverableError as e:
                 # Records the exception and puts the logs back to the deque
                 # and prints the exception to stderr.
