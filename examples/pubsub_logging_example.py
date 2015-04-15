@@ -15,11 +15,13 @@
 
 """A example script for Pub/Sub logging handlers."""
 
+
+from __future__ import print_function
+
 import argparse
 import logging
 import logging.config
 import logging.handlers
-import sys
 import time
 
 from pubsub_logging import AsyncPubsubHandler
@@ -37,22 +39,18 @@ def main():
     parser.add_argument('--async', dest='async', action='store_true')
     parser.add_argument('--no-async', dest='async', action='store_false')
     parser.set_defaults(async=True)
-    parser.add_argument('--debug', dest='debug', action='store_true')
-    parser.add_argument('--no-debug', dest='debug', action='store_false')
-    parser.set_defaults(debug=False)
     parser.add_argument('topic', default='')
     args = parser.parse_args()
     num = args.num_messages
     workers = args.num_workers
     topic = args.topic
     if args.async:
-        sys.stderr.write('Using AsyncPubsubHandler.\n')
+        print('Using AsyncPubsubHandler.\n')
         pubsub_handler = AsyncPubsubHandler(topic, workers,
-                                            timeout=args.timeout,
-                                            debug=args.debug)
+                                            timeout=args.timeout)
     else:
-        sys.stderr.write('Using PubsubHandler.\n')
-        pubsub_handler = PubsubHandler(topic=topic, debug=args.debug)
+        print('Using PubsubHandler.\n')
+        pubsub_handler = PubsubHandler(topic)
     pubsub_handler.setFormatter(
         logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
@@ -64,12 +62,12 @@ def main():
     for i in range(num):
         logger.info('log message %03d.', i)
     elapsed = time.time() - before
-    sys.stderr.write('Took %f secs for buffering %d messages: %f mps.\n' %
-                     (elapsed, num, num/elapsed))
+    print('Took %f secs for buffering %d messages: %f mps.\n' %
+          (elapsed, num, num/elapsed))
     pubsub_handler.flush()
     elapsed = time.time() - before
-    sys.stderr.write('Took %f secs for sending %d messages: %f mps.\n' %
-                     (elapsed, num, num/elapsed))
+    print('Took %f secs for sending %d messages: %f mps.\n' %
+          (elapsed, num, num/elapsed))
 
 
 if __name__ == '__main__':

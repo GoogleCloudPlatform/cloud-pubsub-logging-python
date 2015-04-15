@@ -124,9 +124,9 @@ class CountPublishBody(object):
         self.lock = mp.Lock()
         self._mock = mock
 
-    def __call__(self, client, body, topic, retry, debug=False):
+    def __call__(self, client, body, topic, retry):
         if self._mock:
-            self._mock(client, body, topic, retry, debug)
+            self._mock(client, body, topic, retry)
         with self.lock:
             self.cnt.value += len(body['messages'])
 
@@ -144,7 +144,7 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
         self.counter = CountPublishBody()
         self.handler = pubsub_logging.AsyncPubsubHandler(
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
-            worker_size=1, timeout=0.1, publish_body=self.counter)
+            worker_num=1, timeout=0.1, publish_body=self.counter)
         log_msg = 'Test message'
         r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
                               None)
@@ -163,7 +163,7 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
         devnull.addHandler(logging.NullHandler())
         self.handler = pubsub_logging.AsyncPubsubHandler(
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
-            worker_size=1, timeout=0.1, publish_body=self.counter,
+            worker_num=1, timeout=0.1, publish_body=self.counter,
             stderr_logger=devnull)
         log_msg = 'Test message'
         r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
@@ -180,7 +180,7 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
         self.counter = CountPublishBody()
         self.handler = pubsub_logging.AsyncPubsubHandler(
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
-            worker_size=10, timeout=0.1, publish_body=self.counter)
+            worker_num=10, timeout=0.1, publish_body=self.counter)
         log_msg = 'Test message'
         r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
                               None)
@@ -273,8 +273,7 @@ class PubsubHandlerFlushTest(unittest.TestCase):
 
         self.handler.flush()
         publish_body.assert_called_once_with(
-            self.mocked_client, self.expected_body, self.topic, self.RETRY,
-            debug=False)
+            self.mocked_client, self.expected_body, self.topic, self.RETRY)
         self.assertEqual(0, len(self.handler.buffer))
 
     @patch('pubsub_logging.pubsub_handler.publish_body')
@@ -296,8 +295,7 @@ class PubsubHandlerFlushTest(unittest.TestCase):
         self.handler.flush()
 
         publish_body.assert_called_once_with(
-            self.mocked_client, self.expected_body, self.topic, self.RETRY,
-            debug=False)
+            self.mocked_client, self.expected_body, self.topic, self.RETRY)
         self.assertEqual(1, len(self.handler.buffer))
 
     @patch('pubsub_logging.pubsub_handler.publish_body')
@@ -309,6 +307,5 @@ class PubsubHandlerFlushTest(unittest.TestCase):
         self.handler.flush()
 
         publish_body.assert_called_once_with(
-            self.mocked_client, self.expected_body, self.topic, self.RETRY,
-            debug=False)
+            self.mocked_client, self.expected_body, self.topic, self.RETRY)
         self.assertEqual(0, len(self.handler.buffer))

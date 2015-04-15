@@ -27,9 +27,10 @@ background.
 import logging
 import multiprocessing as mp
 
+# For Python 2 and Python 3 compatibility.
 try:
     from queue import Empty
-except ImportError:  # pragma: NO COVER
+except ImportError:
     from Queue import Empty
 
 from pubsub_logging import errors
@@ -40,41 +41,40 @@ from pubsub_logging.utils import publish_body
 
 
 BATCH_SIZE = 1000
-DEFAULT_WORKER_SIZE = 1
+DEFAULT_POOL_SIZE = 1
 DEFAULT_RETRY_COUNT = 10
 DEFAULT_TIMEOUT = 1
 
 
 class AsyncPubsubHandler(logging.Handler):
     """A logging handler to publish logs to Cloud Pub/Sub in background."""
-    def __init__(self, topic, worker_size=DEFAULT_WORKER_SIZE, debug=False,
+    def __init__(self, topic, worker_num=DEFAULT_POOL_SIZE,
                  retry=DEFAULT_RETRY_COUNT, timeout=DEFAULT_TIMEOUT,
                  client=None, publish_body=publish_body, stderr_logger=None):
         """The constructor of the handler.
 
         Args:
           topic: Cloud Pub/Sub topic name to send the logs.
-          worker_size: The initial worker size.
-          debug: A flag for debug output.
+          worker_num: The number of workers, defaults to 1.
           retry: How many times to retry upon Cloud Pub/Sub API failure,
                  defaults to 5.
-          timeout: Timeout for BatchQueue.get.
+          timeout: Timeout for BatchQueue.get, defaults to 1.
           client: An optional Cloud Pub/Sub client to use. If not set, one is
                   built automatically, defaults to None.
           publish_body: A callable for publishing the Pub/Sub message,
                         just for testing purposes.
-          stderr_logger: A logger for informing failures with this logger.
+          stderr_logger: A logger for informing failures with this
+                         logger, defaults to None and if not specified, a last
+                         resort logger will be used.
         """
         super(AsyncPubsubHandler, self).__init__()
         self._topic = topic
-        self._debug = debug
         self._retry = retry
         self._client = client
         self._q = mp.JoinableQueue()
-        self._should_exit = mp.Value('i', 0)
-        self._children = []
+        self._workers = []
         self._timeout = timeout
-        self._threshold = BATCH_SIZE
+        self._batch_size = BATCH_SIZE
         self._buf = []
         self._publish_body = publish_body
         if stderr_logger:
@@ -82,10 +82,10 @@ class AsyncPubsubHandler(logging.Handler):
         else:
             self._stderr_logger = logging.Logger('last_resort')
             self._stderr_logger.addHandler(logging.StreamHandler())
-        for i in range(worker_size):
+        for _ in range(worker_num):
             p = mp.Process(target=self.send_loop, args=(self._q,))
             p.daemon = True
-            self._children.append(p)
+            self._workers.append(p)
             p.start()
 
     def send_loop(self, q):  # pragma: NO COVER
@@ -94,20 +94,16 @@ class AsyncPubsubHandler(logging.Handler):
             client = self._client
         else:  # pragma: NO COVER
             client = get_pubsub_client()
-        while not self._should_exit.value:
-            logs = []
+        while True:
             try:
                 logs = q.get(block=True, timeout=self._timeout)
             except Empty:
-                pass
-            if not logs:
                 continue
             try:
                 body = {'messages':
                         [{'data': compat_urlsafe_b64encode(self.format(r))}
                             for r in logs]}
-                self._publish_body(client, body, self._topic, self._retry,
-                                   debug=self._debug)
+                self._publish_body(client, body, self._topic, self._retry)
             except errors.RecoverableError as e:
                 # Records the exception and puts the logs back to the deque
                 # and prints the exception to stderr.
@@ -117,13 +113,13 @@ class AsyncPubsubHandler(logging.Handler):
                 self._stderr_logger.exception(e)
                 self._stderr_logger.warn('There was a non recoverable error, '
                                          'exiting.')
-                exit()
+                return
             q.task_done()
 
     def emit(self, record):
         """Puts the record to the internal queue."""
         self._buf.append(record)
-        if len(self._buf) == self._threshold:
+        if len(self._buf) == self._batch_size:
             self._q.put(self._buf)
             self._buf = []
 
@@ -139,7 +135,4 @@ class AsyncPubsubHandler(logging.Handler):
         """Joins the child processes and call the superclass's close."""
         with self.lock:
             self.flush()
-            self._should_exit.value = 1
-            for p in self._children:
-                p.join()
         super(AsyncPubsubHandler, self).close()

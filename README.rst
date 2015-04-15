@@ -5,7 +5,7 @@ cloud-pubsub-logging-python
 
 |pypi| |build| |coverage|
 
-You can use the pubsub_logging.PubsubHandler or pubsub_logging.AsyncPubsubHandler to publish the logs to `Cloud Pub/Sub`_. You can use this module with `the standard Python logging module`_.
+You can use the `pubsub_logging.PubsubHandler` or `pubsub_logging.AsyncPubsubHandler` to publish the logs to `Cloud Pub/Sub`_. You can use this module with `the standard Python logging module`_. It's recommended that you use `AsyncPubsubHandler`. `PubsubHandler` exists only for backward compatibility.
 
 .. _Cloud Pub/Sub: https://cloud.google.com/pubsub/docs/
 .. _the standard Python logging module: https://docs.python.org/2/library/logging.html
