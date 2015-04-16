@@ -26,6 +26,18 @@ import time
 
 from pubsub_logging import AsyncPubsubHandler
 from pubsub_logging import PubsubHandler
+from pubsub_logging import utils
+
+
+def benchmark(f):
+    """A simple decorator for timing output for publish_body."""
+    def inner(*args, **kwargs):
+        before = time.time()
+        ret = f(*args, **kwargs)
+        print('Took %f secs for sending %d messages.' %
+              (time.time() - before, len(args[1]['messages'])))
+        return ret
+    return inner
 
 
 def main():
@@ -39,18 +51,25 @@ def main():
     parser.add_argument('--async', dest='async', action='store_true')
     parser.add_argument('--no-async', dest='async', action='store_false')
     parser.set_defaults(async=True)
+    parser.add_argument('--bench', dest='bench', action='store_true')
+    parser.add_argument('--no-bench', dest='bench', action='store_false')
+    parser.set_defaults(bench=False)
     parser.add_argument('topic', default='')
     args = parser.parse_args()
     num = args.num_messages
     workers = args.num_workers
     topic = args.topic
+    publish_body = utils.publish_body
+    if args.bench:
+        publish_body = benchmark(publish_body)
     if args.async:
         print('Using AsyncPubsubHandler.\n')
         pubsub_handler = AsyncPubsubHandler(topic, workers,
-                                            timeout=args.timeout)
+                                            timeout=args.timeout,
+                                            publish_body=publish_body)
     else:
         print('Using PubsubHandler.\n')
-        pubsub_handler = PubsubHandler(topic)
+        pubsub_handler = PubsubHandler(topic, publish_body=publish_body)
     pubsub_handler.setFormatter(
         logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))

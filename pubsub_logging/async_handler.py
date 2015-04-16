@@ -62,7 +62,7 @@ class AsyncPubsubHandler(logging.Handler):
           client: An optional Cloud Pub/Sub client to use. If not set, one is
                   built automatically, defaults to None.
           publish_body: A callable for publishing the Pub/Sub message,
-                        just for testing purposes.
+                        just for testing and benchmarking purposes.
           stderr_logger: A logger for informing failures with this
                          logger, defaults to None and if not specified, a last
                          resort logger will be used.

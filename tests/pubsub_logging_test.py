@@ -24,8 +24,6 @@ from apiclient import errors
 
 import mock
 
-from mock import patch
-
 import pubsub_logging
 
 from pubsub_logging.errors import RecoverableError
@@ -256,9 +254,10 @@ class PubsubHandlerFlushTest(unittest.TestCase):
     def setUp(self):
         self.mocked_client = mock.MagicMock()
         self.topic = 'projects/test-project/topics/test-topic'
+        self.publish_body = mock.MagicMock()
         self.handler = pubsub_logging.PubsubHandler(
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
-            capacity=self.BATCH_NUM)
+            capacity=self.BATCH_NUM, publish_body=self.publish_body)
         self.log_msg = 'Test message'
         self.expected_payload = compat_urlsafe_b64encode(
             self.log_msg)
@@ -266,46 +265,44 @@ class PubsubHandlerFlushTest(unittest.TestCase):
         self.r = logging.LogRecord('test', logging.INFO, None, 0, self.log_msg,
                                    [], None)
 
-    @patch('pubsub_logging.pubsub_handler.publish_body')
-    def test_flush(self, publish_body):
+    def test_flush(self):
         """Tests if the flush method calls publish_body."""
         self.handler.emit(self.r)
 
         self.handler.flush()
-        publish_body.assert_called_once_with(
+        self.publish_body.assert_called_once_with(
             self.mocked_client, self.expected_body, self.topic, self.RETRY)
         self.assertEqual(0, len(self.handler.buffer))
 
-    @patch('pubsub_logging.pubsub_handler.publish_body')
-    def test_flush_raise_on_publish_404(self, publish_body):
+    def test_flush_raise_on_publish_404(self):
         """Tests if the flush raises upon 404 error from publish_body."""
         self.handler.emit(self.r)
         mocked_resp = mock.MagicMock()
         mocked_resp.status = 404
         mocked_resp.reason = 'Not Found'
-        # 404 error
-        publish_body.side_effect = errors.HttpError(mocked_resp, 'Not found')
+        # 404 error and None for atexit.
+        self.publish_body.side_effect = [
+            errors.HttpError(mocked_resp, 'Not found'),
+            None]
         self.assertRaises(errors.HttpError, self.handler.flush)
 
-    @patch('pubsub_logging.pubsub_handler.publish_body')
-    def test_flush_ignore_recoverable(self, publish_body):
+    def test_flush_ignore_recoverable(self):
         """Tests if we ignore Recoverable error from publish_body."""
         self.handler.emit(self.r)
-        publish_body.side_effect = RecoverableError()
+        self.publish_body.side_effect = RecoverableError()
         self.handler.flush()
 
-        publish_body.assert_called_once_with(
+        self.publish_body.assert_called_once_with(
             self.mocked_client, self.expected_body, self.topic, self.RETRY)
         self.assertEqual(1, len(self.handler.buffer))
 
-    @patch('pubsub_logging.pubsub_handler.publish_body')
-    def test_cut_buffer(self, publish_body):
+    def test_cut_buffer(self):
         """Tests if we cut the buffer upon recoverale errors."""
         self.handler._buf_hard_limit = 0
         self.handler.emit(self.r)
-        publish_body.side_effect = RecoverableError()
+        self.publish_body.side_effect = RecoverableError()
         self.handler.flush()
 
-        publish_body.assert_called_once_with(
+        self.publish_body.assert_called_once_with(
             self.mocked_client, self.expected_body, self.topic, self.RETRY)
         self.assertEqual(0, len(self.handler.buffer))
