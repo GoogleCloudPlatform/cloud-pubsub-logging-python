@@ -139,7 +139,7 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
         self.counter = CountPublishBody()
         self.handler = pubsub_logging.AsyncPubsubHandler(
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
-            worker_num=1, timeout=0.1, publish_body=self.counter)
+            worker_num=1, publish_body=self.counter)
         log_msg = 'Test message'
         r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
                               None)
@@ -158,7 +158,7 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
         devnull.addHandler(logging.NullHandler())
         self.handler = pubsub_logging.AsyncPubsubHandler(
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
-            worker_num=1, timeout=0.1, publish_body=self.counter,
+            worker_num=1, publish_body=self.counter,
             stderr_logger=devnull)
         log_msg = 'Test message'
         r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
@@ -175,7 +175,7 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
         self.counter = CountPublishBody()
         self.handler = pubsub_logging.AsyncPubsubHandler(
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
-            worker_num=10, timeout=0.1, publish_body=self.counter)
+            worker_num=10, publish_body=self.counter)
         log_msg = 'Test message'
         r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
                               None)

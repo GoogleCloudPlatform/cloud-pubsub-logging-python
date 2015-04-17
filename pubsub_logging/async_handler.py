@@ -43,10 +43,9 @@ from pubsub_logging.utils import publish_body
 BATCH_SIZE = 1000
 DEFAULT_POOL_SIZE = 1
 DEFAULT_RETRY_COUNT = 10
-DEFAULT_TIMEOUT = 1
 
 
-def send_loop(client, q, topic, retry, timeout, logger, format_func,
+def send_loop(client, q, topic, retry, logger, format_func,
               publish_body):  # pragma: NO COVER
     """Process loop for indefinitely sending logs to Cloud Pub/Sub.
 
@@ -55,7 +54,6 @@ def send_loop(client, q, topic, retry, timeout, logger, format_func,
       q: mp.JoinableQueue instance to get the message from.
       topic: Cloud Pub/Sub topic name to send the logs.
       retry: How many times to retry upon Cloud Pub/Sub API failure.
-      timeout: Timeout for Queue.get.
       logger: A logger for informing failures within this function.
       format_func: A callable for formatting the logs.
       publish_body: A callable for sending the logs.
@@ -64,7 +62,7 @@ def send_loop(client, q, topic, retry, timeout, logger, format_func,
         client = get_pubsub_client()
     while True:
         try:
-            logs = q.get(block=True, timeout=timeout)
+            logs = q.get()
         except Empty:
             continue
         try:
@@ -87,8 +85,8 @@ def send_loop(client, q, topic, retry, timeout, logger, format_func,
 class AsyncPubsubHandler(logging.Handler):
     """A logging handler to publish logs to Cloud Pub/Sub in background."""
     def __init__(self, topic, worker_num=DEFAULT_POOL_SIZE,
-                 retry=DEFAULT_RETRY_COUNT, timeout=DEFAULT_TIMEOUT,
-                 client=None, publish_body=publish_body, stderr_logger=None):
+                 retry=DEFAULT_RETRY_COUNT, client=None,
+                 publish_body=publish_body, stderr_logger=None):
         """The constructor of the handler.
 
         Args:
@@ -96,7 +94,6 @@ class AsyncPubsubHandler(logging.Handler):
           worker_num: The number of workers, defaults to 1.
           retry: How many times to retry upon Cloud Pub/Sub API failure,
                  defaults to 5.
-          timeout: Timeout for Queue.get, defaults to 1.
           client: An optional Cloud Pub/Sub client to use. If not set, one is
                   built automatically, defaults to None.
           publish_body: A callable for publishing the Pub/Sub message,
@@ -114,8 +111,8 @@ class AsyncPubsubHandler(logging.Handler):
             stderr_logger.addHandler(logging.StreamHandler())
         for _ in range(worker_num):
             p = mp.Process(target=send_loop,
-                           args=(client, self._q, topic, retry, timeout,
-                                 stderr_logger, self.format, publish_body))
+                           args=(client, self._q, topic, retry, stderr_logger,
+                                 self.format, publish_body))
             p.daemon = True
             p.start()
 

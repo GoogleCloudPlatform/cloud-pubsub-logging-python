@@ -46,8 +46,6 @@ def main():
                         default=100000, help='number of messages')
     parser.add_argument('-w', '--num_workers', metavar='N', type=int,
                         default=20, help='number of workers')
-    parser.add_argument('-t', '--timeout', metavar='D', type=float,
-                        default=1, help='timeout for the BatchQueue.get')
     parser.add_argument('--async', dest='async', action='store_true')
     parser.add_argument('--no-async', dest='async', action='store_false')
     parser.set_defaults(async=True)
@@ -65,7 +63,6 @@ def main():
     if args.async:
         print('Using AsyncPubsubHandler.\n')
         pubsub_handler = AsyncPubsubHandler(topic, workers,
-                                            timeout=args.timeout,
                                             publish_body=publish_body)
     else:
         print('Using PubsubHandler.\n')
