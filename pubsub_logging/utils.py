@@ -35,16 +35,15 @@ PUBSUB_SCOPES = ["https://www.googleapis.com/auth/pubsub"]
 clients = threading.local()
 
 
-def compat_urlsafe_b64encode(v, force_py3_mode=False):
+def compat_urlsafe_b64encode(v):
     """A urlsafe ba64encode which is compatible with Python 2 and 3.
 
     Args:
       v: A string to encode.
-      force_py3_mode: If True, it will use the code for Python3.
     Returns:
       The encoded string.
     """
-    if sys.version_info[0] >= 3 or force_py3_mode:
+    if sys.version_info[0] >= 3:  # pragma: NO COVER
         return base64.urlsafe_b64encode(v.encode('UTF-8')).decode('ascii')
     else:
         return base64.urlsafe_b64encode(v)

@@ -39,9 +39,6 @@ class CompatBase64Test(unittest.TestCase):
         expected = 'dGVzdA=='
         result = compat_urlsafe_b64encode(v)
         self.assertEqual(expected, result)
-        # Python3 route
-        result = compat_urlsafe_b64encode(v, True)
-        self.assertEqual(expected, result)
 
 
 class PublishBodyTest(unittest.TestCase):
