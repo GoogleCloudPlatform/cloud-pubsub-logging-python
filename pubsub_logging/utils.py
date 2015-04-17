@@ -44,7 +44,7 @@ def compat_urlsafe_b64encode(v, force_py3_mode=False):
     Returns:
       The encoded string.
     """
-    if sys.version_info[0] == 3 or force_py3_mode:
+    if sys.version_info[0] >= 3 or force_py3_mode:
         return base64.urlsafe_b64encode(v.encode('UTF-8')).decode('ascii')
     else:
         return base64.urlsafe_b64encode(v)
