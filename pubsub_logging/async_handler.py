@@ -46,6 +46,44 @@ DEFAULT_RETRY_COUNT = 10
 DEFAULT_TIMEOUT = 1
 
 
+def send_loop(client, q, topic, retry, timeout, logger, format_func,
+              publish_body):  # pragma: NO COVER
+    """Process loop for indefinitely sending logs to Cloud Pub/Sub.
+
+    Args:
+      client: Pub/Sub client. If it's None, a new client will be created.
+      q: mp.JoinableQueue instance to get the message from.
+      topic: Cloud Pub/Sub topic name to send the logs.
+      retry: How many times to retry upon Cloud Pub/Sub API failure.
+      timeout: Timeout for Queue.get.
+      logger: A logger for informing failures within this function.
+      format_func: A callable for formatting the logs.
+      publish_body: A callable for sending the logs.
+    """
+    if client is None:
+        client = get_pubsub_client()
+    while True:
+        try:
+            logs = q.get(block=True, timeout=timeout)
+        except Empty:
+            continue
+        try:
+            body = {'messages':
+                    [{'data': compat_urlsafe_b64encode(format_func(r))}
+                        for r in logs]}
+            publish_body(client, body, topic, retry)
+        except errors.RecoverableError as e:
+            # Records the exception and puts the logs back to the deque
+            # and prints the exception to stderr.
+            q.put(logs)
+            logger.exception(e)
+        except Exception as e:
+            logger.exception(e)
+            logger.warn('There was a non recoverable error, exiting.')
+            return
+        q.task_done()
+
+
 class AsyncPubsubHandler(logging.Handler):
     """A logging handler to publish logs to Cloud Pub/Sub in background."""
     def __init__(self, topic, worker_num=DEFAULT_POOL_SIZE,
@@ -58,7 +96,7 @@ class AsyncPubsubHandler(logging.Handler):
           worker_num: The number of workers, defaults to 1.
           retry: How many times to retry upon Cloud Pub/Sub API failure,
                  defaults to 5.
-          timeout: Timeout for BatchQueue.get, defaults to 1.
+          timeout: Timeout for Queue.get, defaults to 1.
           client: An optional Cloud Pub/Sub client to use. If not set, one is
                   built automatically, defaults to None.
           publish_body: A callable for publishing the Pub/Sub message,
@@ -68,53 +106,18 @@ class AsyncPubsubHandler(logging.Handler):
                          resort logger will be used.
         """
         super(AsyncPubsubHandler, self).__init__()
-        self._topic = topic
-        self._retry = retry
-        self._client = client
         self._q = mp.JoinableQueue()
-        self._workers = []
-        self._timeout = timeout
         self._batch_size = BATCH_SIZE
         self._buf = []
-        self._publish_body = publish_body
-        if stderr_logger:
-            self._stderr_logger = stderr_logger
-        else:
-            self._stderr_logger = logging.Logger('last_resort')
-            self._stderr_logger.addHandler(logging.StreamHandler())
+        if not stderr_logger:
+            stderr_logger = logging.Logger('last_resort')
+            stderr_logger.addHandler(logging.StreamHandler())
         for _ in range(worker_num):
-            p = mp.Process(target=self.send_loop, args=(self._q,))
+            p = mp.Process(target=send_loop,
+                           args=(client, self._q, topic, retry, timeout,
+                                 stderr_logger, self.format, publish_body))
             p.daemon = True
-            self._workers.append(p)
             p.start()
-
-    def send_loop(self, q):  # pragma: NO COVER
-        """Process loop for indefinitely sending logs to Cloud Pub/Sub."""
-        if self._client:
-            client = self._client
-        else:  # pragma: NO COVER
-            client = get_pubsub_client()
-        while True:
-            try:
-                logs = q.get(block=True, timeout=self._timeout)
-            except Empty:
-                continue
-            try:
-                body = {'messages':
-                        [{'data': compat_urlsafe_b64encode(self.format(r))}
-                            for r in logs]}
-                self._publish_body(client, body, self._topic, self._retry)
-            except errors.RecoverableError as e:
-                # Records the exception and puts the logs back to the deque
-                # and prints the exception to stderr.
-                q.put(logs)
-                self._stderr_logger.exception(e)
-            except Exception as e:
-                self._stderr_logger.exception(e)
-                self._stderr_logger.warn('There was a non recoverable error, '
-                                         'exiting.')
-                return
-            q.task_done()
 
     def emit(self, record):
         """Puts the record to the internal queue."""
