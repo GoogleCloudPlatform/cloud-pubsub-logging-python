@@ -17,6 +17,7 @@
 
 
 import logging
+import multiprocessing as mp
 import unittest
 
 from apiclient import errors
@@ -25,6 +26,10 @@ import mock
 
 import pubsub_logging
 
+from pubsub_logging.errors import RecoverableError
+from pubsub_logging.utils import compat_urlsafe_b64encode
+from pubsub_logging.utils import publish_body
+
 
 class CompatBase64Test(unittest.TestCase):
     """Test for compat_urlsafe_b64encode function."""
@@ -32,8 +37,154 @@ class CompatBase64Test(unittest.TestCase):
     def test_compat_urlsafe_b64encode(self):
         v = 'test'
         expected = 'dGVzdA=='
-        result = pubsub_logging.compat_urlsafe_b64encode(v)
+        result = compat_urlsafe_b64encode(v)
         self.assertEqual(expected, result)
+
+
+class PublishBodyTest(unittest.TestCase):
+    """Tests for utils.publish_body function."""
+    RETRY = 3
+
+    def setUp(self):
+        self.mocked_client = mock.MagicMock()
+        self.topic = 'projects/test-project/topics/test-topic'
+        self.projects = self.mocked_client.projects.return_value
+        self.topics = self.projects.topics.return_value
+        self.topics_publish = self.topics.publish.return_value
+        self.log_msg = 'Test message'
+        self.expected_payload = compat_urlsafe_b64encode(
+            self.log_msg)
+        self.expected_body = {'messages': [{'data': self.expected_payload}]}
+        self.r = logging.LogRecord('test', logging.INFO, None, 0, self.log_msg,
+                                   [], None)
+
+    def publish(self):
+        publish_body(self.mocked_client, self.expected_body, self.topic,
+                     self.RETRY)
+
+    def test_publish_body(self):
+        """Basic test for publish_body."""
+        self.publish()
+        self.topics.publish.assert_called_once_with(
+            topic=self.topic, body=self.expected_body)
+        self.topics_publish.execute.assert_called_with(num_retries=self.RETRY)
+
+    def test_publish_body_raise_on_publish_404(self):
+        """Tests if the flush method raises when publish gets a 404 error."""
+        mocked_resp = mock.MagicMock()
+        mocked_resp.status = 404
+        mocked_resp.reason = 'Not Found'
+        # 404 error
+        self.topics_publish.execute.side_effect = [
+            errors.HttpError(mocked_resp, 'Not found')
+        ]
+        self.assertRaises(errors.HttpError, self.publish)
+
+    def test_flush_raise_on_publish_403(self):
+        """Tests if the flush method raises when publish gets a 403 error."""
+        mocked_resp = mock.MagicMock()
+        mocked_resp.status = 403
+        mocked_resp.reason = 'Access not allowed'
+        # 403 error
+        self.topics_publish.execute.side_effect = [
+            errors.HttpError(mocked_resp, 'Access not allowed'),
+        ]
+        self.assertRaises(errors.HttpError, self.publish)
+
+    def test_flush_ignore_recoverable(self):
+        """Tests if we raise upon getting 503 error from Cloud Pub/Sub."""
+        mocked_resp = mock.MagicMock()
+        mocked_resp.status = 503
+        mocked_resp.reason = 'Server Error'
+        # 503 error
+        self.topics_publish.execute.side_effect = [
+            errors.HttpError(mocked_resp, 'Server Error'),
+        ]
+        self.assertRaises(RecoverableError, self.publish)
+        self.topics.publish.assert_called_once_with(
+            topic=self.topic, body=self.expected_body)
+        self.topics_publish.execute.assert_called_once_with(
+            num_retries=self.RETRY)
+
+
+class CountPublishBody(object):
+    """A simple counter that counts total number of messages."""
+    def __init__(self, mock=None):
+        """Initializes this mock.
+
+        Args:
+          mock: A mock object that we call before update the counter.
+        """
+        self.cnt = mp.Value('i', 0)
+        self.lock = mp.Lock()
+        self._mock = mock
+
+    def __call__(self, client, body, topic, retry):
+        if self._mock:
+            self._mock(client, body, topic, retry)
+        with self.lock:
+            self.cnt.value += len(body['messages'])
+
+
+class AsyncPubsubHandlerTest(unittest.TestCase):
+    """Tests for async_handler.AsyncPubsubHandler."""
+    RETRY = 10
+
+    def setUp(self):
+        self.mocked_client = mock.MagicMock()
+        self.topic = 'projects/test-project/topics/test-topic'
+
+    def test_single_message(self):
+        """Tests if utils.publish_body is called with one message."""
+        self.counter = CountPublishBody()
+        self.handler = pubsub_logging.AsyncPubsubHandler(
+            topic=self.topic, client=self.mocked_client, retry=self.RETRY,
+            worker_num=1, publish_body=self.counter)
+        log_msg = 'Test message'
+        r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
+                              None)
+        self.handler.emit(r)
+        self.handler.close()
+        with self.counter.lock:
+            self.assertEqual(1, self.counter.cnt.value)
+
+    def test_handler_ignores_error(self):
+        """Tests if the handler ignores errors and throws the logs away."""
+        mock_publish_body = mock.MagicMock()
+        mock_publish_body.side_effect = [RecoverableError(), mock.DEFAULT]
+        self.counter = CountPublishBody(mock=mock_publish_body)
+        # For suppressing the output.
+        devnull = logging.Logger('devnull')
+        devnull.addHandler(logging.NullHandler())
+        self.handler = pubsub_logging.AsyncPubsubHandler(
+            topic=self.topic, client=self.mocked_client, retry=self.RETRY,
+            worker_num=1, publish_body=self.counter,
+            stderr_logger=devnull)
+        log_msg = 'Test message'
+        r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
+                              None)
+
+        # RecoverableError should be ignored, and retried.
+        self.handler.emit(r)
+        self.handler.close()
+        with self.counter.lock:
+            self.assertEqual(1, self.counter.cnt.value)
+
+    def test_total_message_count(self):
+        """Tests if utils.publish_body is called with 10000 message."""
+        self.counter = CountPublishBody()
+        self.handler = pubsub_logging.AsyncPubsubHandler(
+            topic=self.topic, client=self.mocked_client, retry=self.RETRY,
+            worker_num=10, publish_body=self.counter)
+        log_msg = 'Test message'
+        r = logging.LogRecord('test', logging.CRITICAL, None, 0, log_msg, [],
+                              None)
+        num = 10000
+        for i in range(num):
+            self.handler.emit(r)
+        self.handler.close()
+        with self.counter.lock:
+            self.assertEqual(num, self.counter.cnt.value)
 
 
 class PubsubHandlerTest(unittest.TestCase):
@@ -92,99 +243,63 @@ class PubsubHandlerTest(unittest.TestCase):
         self.handler.flush.assert_called_once()
 
 
-class FlushTest(unittest.TestCase):
-    """Tests for the flush method."""
+class PubsubHandlerFlushTest(unittest.TestCase):
+    """Tests for the flush method of PubsubHandler."""
     RETRY = 3
     BATCH_NUM = 2
 
     def setUp(self):
         self.mocked_client = mock.MagicMock()
         self.topic = 'projects/test-project/topics/test-topic'
+        self.publish_body = mock.MagicMock()
         self.handler = pubsub_logging.PubsubHandler(
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
-            capacity=self.BATCH_NUM)
-        self.projects = self.mocked_client.projects.return_value
-        self.topics = self.projects.topics.return_value
-        self.topics_publish = self.topics.publish.return_value
+            capacity=self.BATCH_NUM, publish_body=self.publish_body)
         self.log_msg = 'Test message'
-        self.expected_payload = pubsub_logging.compat_urlsafe_b64encode(
+        self.expected_payload = compat_urlsafe_b64encode(
             self.log_msg)
         self.expected_body = {'messages': [{'data': self.expected_payload}]}
         self.r = logging.LogRecord('test', logging.INFO, None, 0, self.log_msg,
                                    [], None)
 
     def test_flush(self):
-        """Tests if the flush method calls Pub/Sub API."""
+        """Tests if the flush method calls publish_body."""
         self.handler.emit(self.r)
 
         self.handler.flush()
-
-        self.topics.publish.assert_called_once_with(
-            topic=self.topic, body=self.expected_body)
-        self.topics_publish.execute.assert_called_with(num_retries=self.RETRY)
+        self.publish_body.assert_called_once_with(
+            self.mocked_client, self.expected_body, self.topic, self.RETRY)
         self.assertEqual(0, len(self.handler.buffer))
 
     def test_flush_raise_on_publish_404(self):
-        """Tests if the flush method raises when publish gets a 404 error."""
+        """Tests if the flush raises upon 404 error from publish_body."""
         self.handler.emit(self.r)
         mocked_resp = mock.MagicMock()
         mocked_resp.status = 404
         mocked_resp.reason = 'Not Found'
-        # 404 error with the second side effect for flushing at exit.
-        self.topics_publish.execute.side_effect = [
+        # 404 error and None for atexit.
+        self.publish_body.side_effect = [
             errors.HttpError(mocked_resp, 'Not found'),
-            ['msgid1']
-        ]
-        self.assertRaises(errors.HttpError, self.handler.flush)
-
-    def test_flush_raise_on_publish_403(self):
-        """Tests if the flush method raises when publish gets a 403 error."""
-        self.handler.emit(self.r)
-        mocked_resp = mock.MagicMock()
-        mocked_resp.status = 403
-        mocked_resp.reason = 'Access not allowed'
-        # 403 error with the second side effect for flushing at exit.
-        self.topics_publish.execute.side_effect = [
-            errors.HttpError(mocked_resp, 'Access not allowed'),
-            ['msgid1']
-        ]
+            None]
         self.assertRaises(errors.HttpError, self.handler.flush)
 
     def test_flush_ignore_recoverable(self):
-        """Tests if we ignore 503 error from Cloud Pub/Sub."""
+        """Tests if we ignore Recoverable error from publish_body."""
         self.handler.emit(self.r)
-        mocked_resp = mock.MagicMock()
-        mocked_resp.status = 503
-        mocked_resp.reason = 'Server Error'
-        # 503 error, with the second side effect for flushing at exit.
-        self.topics_publish.execute.side_effect = [
-            errors.HttpError(mocked_resp, 'Server Error'),
-            ['msgid1']
-        ]
+        self.publish_body.side_effect = RecoverableError()
         self.handler.flush()
 
-        self.topics.publish.assert_called_once_with(
-            topic=self.topic, body=self.expected_body)
-        self.topics_publish.execute.assert_called_once_with(
-            num_retries=self.RETRY)
+        self.publish_body.assert_called_once_with(
+            self.mocked_client, self.expected_body, self.topic, self.RETRY)
         self.assertEqual(1, len(self.handler.buffer))
 
     def test_cut_buffer(self):
         """Tests if we cut the buffer upon recoverale errors."""
         self.handler._buf_hard_limit = 0
         self.handler.emit(self.r)
-        mocked_resp = mock.MagicMock()
-        mocked_resp.status = 503
-        mocked_resp.reason = 'Server Error'
-        # 503 error, with the second side effect for flushing at exit.
-        self.topics_publish.execute.side_effect = [
-            errors.HttpError(mocked_resp, 'Server Error'),
-            ['msgid1']
-        ]
+        self.publish_body.side_effect = RecoverableError()
         self.handler.flush()
 
-        self.topics.publish.assert_called_once_with(
-            topic=self.topic, body=self.expected_body)
-        self.topics_publish.execute.assert_called_once_with(
-            num_retries=self.RETRY)
+        self.publish_body.assert_called_once_with(
+            self.mocked_client, self.expected_body, self.topic, self.RETRY)
         self.assertEqual(0, len(self.handler.buffer))

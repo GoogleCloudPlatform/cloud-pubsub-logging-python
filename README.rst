@@ -1,11 +1,11 @@
 cloud-pubsub-logging-python
 ===========================
 
-    A logging handler for publishing the logs to Cloud Pub/Sub.
+    Logging handlers for publishing the logs to Cloud Pub/Sub.
 
 |pypi| |build| |coverage|
 
-You can use the pubsub_logging.PubsubHandler to publish the logs to `Cloud Pub/Sub`_. You can use this module with `the standard Python logging module`_.
+You can use the `pubsub_logging.PubsubHandler` or `pubsub_logging.AsyncPubsubHandler` to publish the logs to `Cloud Pub/Sub`_. You can use this module with `the standard Python logging module`_. It's recommended that you use `AsyncPubsubHandler`. `PubsubHandler` exists only for backward compatibility.
 
 .. _Cloud Pub/Sub: https://cloud.google.com/pubsub/docs/
 .. _the standard Python logging module: https://docs.python.org/2/library/logging.html
@@ -13,7 +13,7 @@ You can use the pubsub_logging.PubsubHandler to publish the logs to `Cloud Pub/S
 Supported version
 -----------------
 
-Python 2.7 is supported.
+Python 2.7 and Python 3.4 are supported.
 
 Installation
 ------------
@@ -33,20 +33,22 @@ Here is an example configuration file.
     keys=root
 
     [handlers]
-    keys=pubsubHandler
+    keys=asyncPubsubHandler
 
     [formatters]
     keys=simpleFormatter
 
     [logger_root]
     level=NOTSET
-    handlers=pubsubHandler
+    handlers=asyncPubsubHandler
 
-    [handler_pubsubHandler]
-    class=pubsub_logging.PubsubHandler
+    [handler_asyncPubsubHandler]
+    class=pubsub_logging.AsyncPubsubHandler
     level=DEBUG
     formatter=simpleFormatter
-    args=('projects/tmatsuo-pubsub-sample/topics/log-topic', 1000)
+    # Replace {project-name} and {topic-name} with actual ones.
+    # The second argument indicates number of workers.
+    args=('projects/{project-name}/topics/{topic-name}', 10)
 
     [formatter_simpleFormatter]
     format=%(asctime)s - %(name)s - %(levelname)s - %(message)s
@@ -55,17 +57,15 @@ How to use this config file.
 
 .. code:: python
 
-    logging.config.fileConfig(os.path.join('examples', 'logging.conf'))
+    logging.config.fileConfig(os.path.join('examples', 'async.conf'))
     logger = logging.getLogger('root')
-    logger.info('This message will be buffered')
-    logger.critical('This message will be flushed.')
-    
+    logger.info('My first message.')
 
 Here is a dynamic usage example.
 
 .. code:: python
 
-    pubsub_handler = PubsubHandler(topic=topic)
+    pubsub_handler = AsyncPubsubHandler(topic=topic)
     pubsub_handler.setFormatter(
         logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
@@ -73,10 +73,9 @@ Here is a dynamic usage example.
     logger = logging.getLogger('root')
     logger.setLevel(logging.DEBUG)
     logger.addHandler(pubsub_handler)
-    logger.info('This message will be buffered')
-    logger.critical('This message will be flushed.')
+    logger.info('My first message.')
 
-The logs are buffered by default, and when the buffer is full, or when the message has a log level higher or equal to flush_level, the buffered logs will be flushed and sent to Cloud Pub/Sub.
+The logs are kept in a buffer first, then moved to the process safe queue, and then the background child processes automatically pick up and send them to Cloud Pub/Sub. The flush call blocks until all of the logs are sent to Cloud Pub/Sub.
 
 Authentication
 --------------

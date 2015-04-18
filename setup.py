@@ -7,6 +7,7 @@ except ImportError:
 
 pubsub_logging_classifiers = [
     'Programming Language :: Python :: 2',
+    'Programming Language :: Python :: 3',
     'Intended Audience :: Developers',
     'License :: OSI Approved :: Apache Software License',
     'Topic :: Software Development :: Libraries',
@@ -22,12 +23,12 @@ REQUIREMENTS = [
 
 setup(
     name='pubsub-logging',
-    version='0.1.6',
+    version='0.2.0',
     author='Takashi Matsuo',
     author_email='tmatsuo@google.com',
     url='https://github.com/GoogleCloudPlatform/cloud-pubsub-logging-python',
-    py_modules=['pubsub_logging'],
-    description="A logging handler for publishing the logs to Cloud Pub/Sub",
+    packages=['pubsub_logging'],
+    description="Logging handlers for publishing the logs to Cloud Pub/Sub",
     install_requires=REQUIREMENTS,
     long_description=pubsub_logging_long_description,
     license='Apache 2.0',
