@@ -27,7 +27,12 @@ import mock
 import pubsub_logging
 
 from pubsub_logging.errors import RecoverableError
+
+from pubsub_logging.utils import PUBSUB_SCOPES
+
 from pubsub_logging.utils import compat_urlsafe_b64encode
+from pubsub_logging.utils import create_topic
+from pubsub_logging.utils import get_pubsub_client
 from pubsub_logging.utils import publish_body
 
 
@@ -39,6 +44,105 @@ class CompatBase64Test(unittest.TestCase):
         expected = 'dGVzdA=='
         result = compat_urlsafe_b64encode(v)
         self.assertEqual(expected, result)
+
+
+class GetPubsubClientTest(unittest.TestCase):
+    """Tests for utils.get_pubsub_client function."""
+
+    def setUp(self):
+        self.mocked_creds = mock.MagicMock()
+        self.mocked_http = mock.MagicMock()
+
+    @mock.patch('pubsub_logging.utils.discovery')
+    @mock.patch('pubsub_logging.utils.httplib2')
+    @mock.patch('pubsub_logging.utils.GoogleCredentials')
+    def test_get_pubsub_client_with_scopes(self, GoogleCredentials, httplib2,
+                                           discovery):
+        """Tests without http object and credentials with scopes."""
+        GoogleCredentials.get_application_default.return_value = (
+            self.mocked_creds)
+        self.mocked_creds.create_scoped_required.return_value = True
+        httplib2.Http.return_value = self.mocked_http
+        self.mocked_creds.create_scoped.return_value = self.mocked_creds
+        get_pubsub_client()
+        self.mocked_creds.create_scoped_required.assert_called_once_with()
+        self.mocked_creds.create_scoped.assert_called_once_with(PUBSUB_SCOPES)
+        httplib2.Http.assert_called_once_with()
+        discovery.build.assert_called_once_with('pubsub', 'v1beta2',
+                                                http=self.mocked_http)
+
+    @mock.patch('pubsub_logging.utils.discovery')
+    @mock.patch('pubsub_logging.utils.httplib2')
+    @mock.patch('pubsub_logging.utils.GoogleCredentials')
+    def test_get_pubsub_client_without_scopes(self, GoogleCredentials,
+                                              httplib2, discovery):
+        """Tests with http object and credentials without scopes."""
+        GoogleCredentials.get_application_default.return_value = (
+            self.mocked_creds)
+        self.mocked_creds.create_scoped_required.return_value = False
+        self.mocked_creds.create_scoped.return_value = self.mocked_creds
+        get_pubsub_client(http=self.mocked_http)
+        self.mocked_creds.create_scoped_required.assert_called_once_with()
+        self.mocked_creds.create_scoped.assert_never_called()
+        httplib2.Http.assert_never_called()
+        discovery.build.assert_called_once_with('pubsub', 'v1beta2',
+                                                http=self.mocked_http)
+
+
+class CreateTopicTest(unittest.TestCase):
+    """Tests for utils.create_topic function."""
+    RETRY = 3
+
+    def setUp(self):
+        self.mocked_client = mock.MagicMock()
+        self.topic = 'projects/test-project/topics/test-topic'
+        self.projects = self.mocked_client.projects.return_value
+        self.topics = self.projects.topics.return_value
+        self.topics_create = self.topics.create.return_value
+
+    def create_topic(self):
+        """Calls the create_topic function."""
+        create_topic(self.mocked_client, self.topic, self.RETRY)
+
+    def test_create_topic(self):
+        """Basic test for publish_body."""
+        self.create_topic()
+        self.topics.create.assert_called_once_with(
+            name=self.topic, body={})
+        self.topics_create.execute.assert_called_with(num_retries=self.RETRY)
+
+    @mock.patch('pubsub_logging.utils.get_pubsub_client')
+    def test_without_client(self, get_pubsub_client):
+        """Tests if the constructor calls get_pubsub_client."""
+        get_pubsub_client.return_value = self.mocked_client
+        create_topic(None, self.topic, self.RETRY)
+        self.topics.create.assert_called_once_with(
+            name=self.topic, body={})
+        self.topics_create.execute.assert_called_with(num_retries=self.RETRY)
+        get_pubsub_client.assert_called_once_with()
+
+    def test_create_topic_raise_on_publish_403(self):
+        """Tests if the flush method raises when publish gets a 404 error."""
+        mocked_resp = mock.MagicMock()
+        mocked_resp.status = 403
+        mocked_resp.reason = 'Not authorized'
+        self.topics_create.execute.side_effect = [
+            errors.HttpError(mocked_resp, 'Not authorized')
+        ]
+        self.assertRaises(errors.HttpError, self.create_topic)
+
+    def test_create_topic_succeeds_with_409_error(self):
+        """Tests if the flush method raises when publish gets a 404 error."""
+        mocked_resp = mock.MagicMock()
+        mocked_resp.status = 409
+        mocked_resp.reason = 'Conflict'
+        self.topics_create.execute.side_effect = [
+            errors.HttpError(mocked_resp, 'Conflict')
+        ]
+        self.create_topic()
+        self.topics.create.assert_called_once_with(
+            name=self.topic, body={})
+        self.topics_create.execute.assert_called_with(num_retries=self.RETRY)
 
 
 class PublishBodyTest(unittest.TestCase):
@@ -199,6 +303,15 @@ class PubsubHandlerTest(unittest.TestCase):
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
             capacity=self.BATCH_NUM)
         self.handler.flush = mock.MagicMock()
+
+    @mock.patch('pubsub_logging.pubsub_handler.get_pubsub_client')
+    def test_constructor_without_client(self, get_pubsub_client):
+        """Tests if the constructor create a new Pub/Sub client."""
+        get_pubsub_client.return_value = self.mocked_client
+        handler = pubsub_logging.PubsubHandler(
+            topic=self.topic, client=None, retry=self.RETRY,
+            capacity=self.BATCH_NUM)
+        self.assertEqual(self.mocked_client, handler._client)
 
     def test_single_buff(self):
         """Tests if the log is stored in the internal buffer."""

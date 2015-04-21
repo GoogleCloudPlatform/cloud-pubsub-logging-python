@@ -36,6 +36,7 @@ import logging
 
 from pubsub_logging.errors import RecoverableError
 from pubsub_logging.utils import compat_urlsafe_b64encode
+from pubsub_logging.utils import create_topic
 from pubsub_logging.utils import get_pubsub_client
 from pubsub_logging.utils import publish_body
 
@@ -74,8 +75,9 @@ class PubsubHandler(logging.handlers.BufferingHandler):
         self._publish_body = publish_body
         if client:
             self._client = client
-        else:  # pragma: NO COVER
+        else:
             self._client = get_pubsub_client()
+        create_topic(self._client, topic, retry)
 
     def flush(self):
         """Transmits the buffered logs to Cloud Pub/Sub."""

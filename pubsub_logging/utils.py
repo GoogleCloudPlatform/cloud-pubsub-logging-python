@@ -49,23 +49,45 @@ def compat_urlsafe_b64encode(v):
         return base64.urlsafe_b64encode(v)
 
 
-def get_pubsub_client(http=None):  # pragma: NO COVER
-    """Return a thread local Pub/Sub client.
+def get_pubsub_client(http=None):
+    """Return a Pub/Sub client.
 
     Args:
       http: httplib2.Http instance. Defaults to None.
     Returns:
       Cloud Pub/Sub client.
     """
-    if not hasattr(clients, 'client'):
-        credentials = GoogleCredentials.get_application_default()
-        if credentials.create_scoped_required():
-            credentials = credentials.create_scoped(PUBSUB_SCOPES)
-        if not http:
-            http = httplib2.Http()
-        credentials.authorize(http=http)
-        clients.client = discovery.build('pubsub', 'v1beta2', http=http)
-    return clients.client
+    credentials = GoogleCredentials.get_application_default()
+    if credentials.create_scoped_required():
+        credentials = credentials.create_scoped(PUBSUB_SCOPES)
+    if not http:
+        http = httplib2.Http()
+    credentials.authorize(http=http)
+    return discovery.build('pubsub', 'v1beta2', http=http)
+
+
+def create_topic(client, topic, retry):
+    """Creates a new topic with a given topic name if it doesn't exist.
+
+    Args:
+      client: Cloud Pub/Sub client.
+      topic: topic name that we publish the records to.
+      retry: number of retry upon intermittent failures.
+
+    Raises:
+      errors.HttpError When the Cloud Pub/Sub API call fails with
+                       unrecoverable reasons.
+    """
+    if not client:
+        client = get_pubsub_client()
+    try:
+        client.projects().topics().create(
+            name=topic, body={}).execute(num_retries=retry)
+    except errors.HttpError as e:
+        if e.resp.status == 409:
+            return
+        else:
+            raise
 
 
 def publish_body(client, body, topic, retry):
