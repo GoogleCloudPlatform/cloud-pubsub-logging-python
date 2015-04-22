@@ -1,4 +1,13 @@
+sudo: false
 language: python
 install:
-        - pip install tox
+- pip install tox
 script: tox
+env:
+- GOOGLE_APPLICATION_CREDENTIALS=pubsub-integration-test.json
+before_install:
+- openssl aes-256-cbc -K $encrypted_360b288b17ae_key
+  -iv $encrypted_360b288b17ae_iv
+  -in pubsub-integration-test.json.enc
+  -out pubsub-integration-test.json
+  -d

@@ -18,17 +18,29 @@
 
 import logging
 import multiprocessing as mp
+import os
+import sys
+import time
 import unittest
 
-from apiclient import errors
-
+import httplib2
 import mock
 
-import pubsub_logging
+from apiclient import errors
+from oauth2client.client import GoogleCredentials
+
+import pubsub_logging # flake8: noqa
 
 from pubsub_logging.errors import RecoverableError
+from pubsub_logging.utils import check_topic
 from pubsub_logging.utils import compat_urlsafe_b64encode
+from pubsub_logging.utils import get_pubsub_client
 from pubsub_logging.utils import publish_body
+from pubsub_logging.utils import PUBSUB_SCOPES
+
+
+DEFAULT_TEST_PROJECT = 'pubsub-integration-test'
+TEST_PROJECT_ENV = 'PUBSUB_LOGGING_TEST_PROJECT'
 
 
 class CompatBase64Test(unittest.TestCase):
@@ -39,6 +51,67 @@ class CompatBase64Test(unittest.TestCase):
         expected = 'dGVzdA=='
         result = compat_urlsafe_b64encode(v)
         self.assertEqual(expected, result)
+
+
+class GetPubsubClientTest(unittest.TestCase):
+    """Tests for utils.get_pubsub_client function.
+
+    You have to set GOOGLE_APPLICATION_CREDENTIALS pointing to the
+    json file of the service account.
+    """
+    RETRY = 3
+
+    def test_get_pubsub_client_with_service_account(self):
+        """Tests the client obtained by the service account method."""
+        client = get_pubsub_client()
+        project = ('projects/%s'
+                   % os.environ.get(TEST_PROJECT_ENV, DEFAULT_TEST_PROJECT))
+        client.projects().topics().list(project=project).execute(
+            num_retries=self.RETRY)
+        # Providing an Http object this time.
+        self.assertIsNotNone(get_pubsub_client(http=httplib2.Http()))
+
+    def test_get_pubsub_client_with_scoped_credentials(self):
+        """Tests the client obtained by scoped credentials."""
+        credentials = GoogleCredentials.get_application_default()
+        credentials = credentials.create_scoped(PUBSUB_SCOPES)
+        self.assertIsNotNone(get_pubsub_client(credentials=credentials))
+
+
+class CheckTopicTest(unittest.TestCase):
+    """Tests for utils.check_topic function.
+
+    You have to set GOOGLE_APPLICATION_CREDENTIALS pointing to the
+    json file of the service account.
+    """
+    RETRY = 3
+
+    def setUp(self):
+        self.client = get_pubsub_client()
+        self.project = os.environ.get(TEST_PROJECT_ENV, DEFAULT_TEST_PROJECT)
+        self.topic = 'projects/%s/topics/test-topic-%f' % (self.project,
+                                                           time.time())
+        self.nonexistence = 'projects/%s/topics/nonexistence' % self.project
+        try:
+            self.client.projects().topics().create(
+                name=self.topic, body={}).execute()
+        except errors.HttpError as e:
+            if e.resp.status == 409:
+                pass
+            else:
+                raise
+
+    def tearDown(self):
+        self.client.projects().topics().delete(topic=self.topic).execute()
+
+    def test_check_topic(self):
+        """Basic test for check_topic."""
+        self.assertTrue(check_topic(self.client, self.topic, self.RETRY))
+
+    def test_check_topic_failure(self):
+        """Tests if the check_topic raises when getting a 404 error."""
+        self.assertFalse(
+            check_topic(self.client, self.nonexistence, self.RETRY))
 
 
 class PublishBodyTest(unittest.TestCase):
@@ -134,6 +207,15 @@ class AsyncPubsubHandlerTest(unittest.TestCase):
         self.mocked_client = mock.MagicMock()
         self.topic = 'projects/test-project/topics/test-topic'
 
+    @mock.patch('pubsub_logging.async_handler.check_topic')
+    def test_fail_fast_when_topic_not_exist(self, check_topic):
+        check_topic.return_value = False
+        def create_handler():
+            pubsub_logging.AsyncPubsubHandler(topic=self.topic,
+                                              client=self.mocked_client,
+                                              worker_num=1)
+        self.assertRaises(EnvironmentError, create_handler)
+
     def test_single_message(self):
         """Tests if utils.publish_body is called with one message."""
         self.counter = CountPublishBody()
@@ -199,6 +281,23 @@ class PubsubHandlerTest(unittest.TestCase):
             topic=self.topic, client=self.mocked_client, retry=self.RETRY,
             capacity=self.BATCH_NUM)
         self.handler.flush = mock.MagicMock()
+
+    @mock.patch('pubsub_logging.pubsub_handler.check_topic')
+    def test_fail_fast_when_topic_not_exist(self, check_topic):
+        check_topic.return_value = False
+        def create_handler():
+            pubsub_logging.PubsubHandler(topic=self.topic,
+                                         client=self.mocked_client)
+        self.assertRaises(EnvironmentError, create_handler)
+
+    @mock.patch('pubsub_logging.pubsub_handler.get_pubsub_client')
+    def test_constructor_without_client(self, get_pubsub_client):
+        """Tests if the constructor create a new Pub/Sub client."""
+        get_pubsub_client.return_value = self.mocked_client
+        handler = pubsub_logging.PubsubHandler(
+            topic=self.topic, client=None, retry=self.RETRY,
+            capacity=self.BATCH_NUM)
+        self.assertEqual(self.mocked_client, handler._client)
 
     def test_single_buff(self):
         """Tests if the log is stored in the internal buffer."""
