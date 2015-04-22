@@ -35,8 +35,8 @@ except ImportError:
 
 from pubsub_logging import errors
 
+from pubsub_logging.utils import check_topic
 from pubsub_logging.utils import compat_urlsafe_b64encode
-from pubsub_logging.utils import create_topic
 from pubsub_logging.utils import get_pubsub_client
 from pubsub_logging.utils import publish_body
 
@@ -107,7 +107,7 @@ class AsyncPubsubHandler(logging.Handler):
         self._q = mp.JoinableQueue()
         self._batch_size = BATCH_SIZE
         self._buf = []
-        create_topic(client, topic, retry)
+        check_topic(client, topic, retry)
         if not stderr_logger:
             stderr_logger = logging.Logger('last_resort')
             stderr_logger.addHandler(logging.StreamHandler())

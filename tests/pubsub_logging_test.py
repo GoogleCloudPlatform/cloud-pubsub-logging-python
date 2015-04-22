@@ -18,11 +18,16 @@
 
 import logging
 import multiprocessing as mp
+import os
 import unittest
 
 from apiclient import errors
 
+import httplib2
+
 import mock
+
+from oauth2client.client import GoogleCredentials
 
 import pubsub_logging
 
@@ -30,10 +35,14 @@ from pubsub_logging.errors import RecoverableError
 
 from pubsub_logging.utils import PUBSUB_SCOPES
 
+from pubsub_logging.utils import check_topic
 from pubsub_logging.utils import compat_urlsafe_b64encode
-from pubsub_logging.utils import create_topic
 from pubsub_logging.utils import get_pubsub_client
 from pubsub_logging.utils import publish_body
+
+
+DEFAULT_TEST_PROJECT = 'projects/pubsub-integration-test'
+TEST_PROJECT_ENV = 'PUBSUB_LOGGING_TEST_PROJECT'
 
 
 class CompatBase64Test(unittest.TestCase):
@@ -47,50 +56,37 @@ class CompatBase64Test(unittest.TestCase):
 
 
 class GetPubsubClientTest(unittest.TestCase):
-    """Tests for utils.get_pubsub_client function."""
+    """Tests for utils.get_pubsub_client function.
 
-    def setUp(self):
-        self.mocked_creds = mock.MagicMock()
-        self.mocked_http = mock.MagicMock()
+    You have to set GOOGLE_APPLICATION_CREDENTIALS pointing to the
+    json file of the service account.
+    """
+    RETRY = 3
 
-    @mock.patch('pubsub_logging.utils.discovery')
-    @mock.patch('pubsub_logging.utils.httplib2')
-    @mock.patch('pubsub_logging.utils.GoogleCredentials')
-    def test_get_pubsub_client_with_scopes(self, GoogleCredentials, httplib2,
-                                           discovery):
-        """Tests without http object and credentials with scopes."""
-        GoogleCredentials.get_application_default.return_value = (
-            self.mocked_creds)
-        self.mocked_creds.create_scoped_required.return_value = True
-        httplib2.Http.return_value = self.mocked_http
-        self.mocked_creds.create_scoped.return_value = self.mocked_creds
-        get_pubsub_client()
-        self.mocked_creds.create_scoped_required.assert_called_once_with()
-        self.mocked_creds.create_scoped.assert_called_once_with(PUBSUB_SCOPES)
-        httplib2.Http.assert_called_once_with()
-        discovery.build.assert_called_once_with('pubsub', 'v1beta2',
-                                                http=self.mocked_http)
+    def test_get_pubsub_client_with_service_account(self):
+        """Tests the client obtained by the service account method."""
+        client = get_pubsub_client()
+        project = os.environ.get(TEST_PROJECT_ENV, DEFAULT_TEST_PROJECT)
+        client.projects().topics().list(project=project).execute(
+            num_retries=self.RETRY)
+        # Providing an Http object this time.
+        client = get_pubsub_client(http=httplib2.Http())
+        project = os.environ.get(TEST_PROJECT_ENV, DEFAULT_TEST_PROJECT)
+        client.projects().topics().list(project=project).execute(
+            num_retries=self.RETRY)
 
-    @mock.patch('pubsub_logging.utils.discovery')
-    @mock.patch('pubsub_logging.utils.httplib2')
-    @mock.patch('pubsub_logging.utils.GoogleCredentials')
-    def test_get_pubsub_client_without_scopes(self, GoogleCredentials,
-                                              httplib2, discovery):
-        """Tests with http object and credentials without scopes."""
-        GoogleCredentials.get_application_default.return_value = (
-            self.mocked_creds)
-        self.mocked_creds.create_scoped_required.return_value = False
-        self.mocked_creds.create_scoped.return_value = self.mocked_creds
-        get_pubsub_client(http=self.mocked_http)
-        self.mocked_creds.create_scoped_required.assert_called_once_with()
-        self.mocked_creds.create_scoped.assert_never_called()
-        httplib2.Http.assert_never_called()
-        discovery.build.assert_called_once_with('pubsub', 'v1beta2',
-                                                http=self.mocked_http)
+    def test_get_pubsub_client_with_scoped_credentials(self):
+        """Tests the client obtained by scoped credentials."""
+        credentials = GoogleCredentials.get_application_default()
+        credentials = credentials.create_scoped(PUBSUB_SCOPES)
+        client = get_pubsub_client(credentials=credentials)
+        project = os.environ.get(TEST_PROJECT_ENV, DEFAULT_TEST_PROJECT)
+        client.projects().topics().list(project=project).execute(
+            num_retries=self.RETRY)
 
 
-class CreateTopicTest(unittest.TestCase):
-    """Tests for utils.create_topic function."""
+class CheckTopicTest(unittest.TestCase):
+    """Tests for utils.check_topic function."""
     RETRY = 3
 
     def setUp(self):
@@ -98,51 +94,36 @@ class CreateTopicTest(unittest.TestCase):
         self.topic = 'projects/test-project/topics/test-topic'
         self.projects = self.mocked_client.projects.return_value
         self.topics = self.projects.topics.return_value
-        self.topics_create = self.topics.create.return_value
+        self.topics_get = self.topics.get.return_value
 
-    def create_topic(self):
+    def check_topic(self):
         """Calls the create_topic function."""
-        create_topic(self.mocked_client, self.topic, self.RETRY)
+        check_topic(self.mocked_client, self.topic, self.RETRY)
 
-    def test_create_topic(self):
-        """Basic test for publish_body."""
-        self.create_topic()
-        self.topics.create.assert_called_once_with(
-            name=self.topic, body={})
-        self.topics_create.execute.assert_called_with(num_retries=self.RETRY)
+    def test_check_topic(self):
+        """Basic test for check_topic."""
+        self.check_topic()
+        self.topics.get.assert_called_once_with(topic=self.topic)
+        self.topics_get.execute.assert_called_with(num_retries=self.RETRY)
 
     @mock.patch('pubsub_logging.utils.get_pubsub_client')
     def test_without_client(self, get_pubsub_client):
         """Tests if the constructor calls get_pubsub_client."""
         get_pubsub_client.return_value = self.mocked_client
-        create_topic(None, self.topic, self.RETRY)
-        self.topics.create.assert_called_once_with(
-            name=self.topic, body={})
-        self.topics_create.execute.assert_called_with(num_retries=self.RETRY)
+        check_topic(None, self.topic, self.RETRY)
+        self.topics.get.assert_called_once_with(topic=self.topic)
+        self.topics_get.execute.assert_called_with(num_retries=self.RETRY)
         get_pubsub_client.assert_called_once_with()
 
-    def test_create_topic_raise_on_publish_403(self):
-        """Tests if the flush method raises when publish gets a 404 error."""
+    def test_check_topic_raise_on_get_404(self):
+        """Tests if the check_topic raises when getting a 404 error."""
         mocked_resp = mock.MagicMock()
-        mocked_resp.status = 403
-        mocked_resp.reason = 'Not authorized'
-        self.topics_create.execute.side_effect = [
-            errors.HttpError(mocked_resp, 'Not authorized')
+        mocked_resp.status = 404
+        mocked_resp.reason = 'Not found'
+        self.topics_get.execute.side_effect = [
+            errors.HttpError(mocked_resp, 'Not found')
         ]
-        self.assertRaises(errors.HttpError, self.create_topic)
-
-    def test_create_topic_succeeds_with_409_error(self):
-        """Tests if the flush method raises when publish gets a 404 error."""
-        mocked_resp = mock.MagicMock()
-        mocked_resp.status = 409
-        mocked_resp.reason = 'Conflict'
-        self.topics_create.execute.side_effect = [
-            errors.HttpError(mocked_resp, 'Conflict')
-        ]
-        self.create_topic()
-        self.topics.create.assert_called_once_with(
-            name=self.topic, body={})
-        self.topics_create.execute.assert_called_with(num_retries=self.RETRY)
+        self.assertRaises(errors.HttpError, self.check_topic)
 
 
 class PublishBodyTest(unittest.TestCase):
