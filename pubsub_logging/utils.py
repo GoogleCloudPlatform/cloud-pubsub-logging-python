@@ -19,12 +19,11 @@
 import base64
 import sys
 import threading
+import traceback
 
 from googleapiclient import discovery
 from googleapiclient import errors
-
 import httplib2
-
 from oauth2client.client import GoogleCredentials
 
 from pubsub_logging.errors import RecoverableError
@@ -67,21 +66,23 @@ def get_pubsub_client(http=None, credentials=None):
     return discovery.build('pubsub', 'v1beta2', http=http)
 
 
-def check_topic(client, topic, retry):
+def check_topic(client, topic, retry=3):
     """Checks the existance of a topic of the given name.
 
     Args:
       client: Cloud Pub/Sub client.
       topic: topic name that we publish the records to.
-      retry: number of retry upon intermittent failures.
+      retry: number of retry upon intermittent failures, defaults to 3.
 
-    Raises:
-      errors.HttpError When the topic doesn't exist, or cloud Pub/Sub API call
-                       fails with unrecoverable reasons.
+    Returns:
+      True when it confirmed that the topic exists, and False otherwise.
     """
-    if not client:
-        client = get_pubsub_client()
-    client.projects().topics().get(topic=topic).execute(num_retries=retry)
+    try:
+        client.projects().topics().get(topic=topic).execute(num_retries=retry)
+        return True
+    except Exception:
+        traceback.print_exc(file=sys.stderr)
+    return False
 
 
 def publish_body(client, body, topic, retry):

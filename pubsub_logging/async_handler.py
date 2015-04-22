@@ -107,7 +107,9 @@ class AsyncPubsubHandler(logging.Handler):
         self._q = mp.JoinableQueue()
         self._batch_size = BATCH_SIZE
         self._buf = []
-        check_topic(client, topic, retry)
+        if not check_topic(client or get_pubsub_client(), topic, retry):
+            raise EnvironmentError(
+                'Failed to confirm the existence of the topic "%s".' % topic)
         if not stderr_logger:
             stderr_logger = logging.Logger('last_resort')
             stderr_logger.addHandler(logging.StreamHandler())

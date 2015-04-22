@@ -77,7 +77,9 @@ class PubsubHandler(logging.handlers.BufferingHandler):
             self._client = client
         else:
             self._client = get_pubsub_client()
-        check_topic(self._client, topic, retry)
+        if not check_topic(self._client, topic, retry):
+            raise EnvironmentError(
+                'Failed to confirm the existence of the topic "%s".' % topic)
 
     def flush(self):
         """Transmits the buffered logs to Cloud Pub/Sub."""
