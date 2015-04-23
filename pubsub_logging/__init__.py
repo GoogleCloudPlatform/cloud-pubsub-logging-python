@@ -30,4 +30,4 @@ import sys
 from .pubsub_handler import PubsubHandler  # flake8: noqa
 from .async_handler import AsyncPubsubHandler  # flake8: noqa
 
-__version__ = '0.2.0'
+__version__ = '0.2.1'

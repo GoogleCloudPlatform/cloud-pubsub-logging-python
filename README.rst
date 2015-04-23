@@ -27,7 +27,7 @@ How to use
 
 Here is an example configuration file.
 
-::
+.. code:: ini
 
     [loggers]
     keys=root
@@ -57,7 +57,7 @@ How to use this config file.
 
 .. code:: python
 
-    logging.config.fileConfig(os.path.join('examples', 'async.conf'))
+    logging.config.fileConfig(os.path.join('examples', 'logging.conf'))
     logger = logging.getLogger('root')
     logger.info('My first message.')
 

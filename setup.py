@@ -23,7 +23,7 @@ REQUIREMENTS = [
 
 setup(
     name='pubsub-logging',
-    version='0.2.0',
+    version='0.2.1',
     author='Takashi Matsuo',
     author_email='tmatsuo@google.com',
     url='https://github.com/GoogleCloudPlatform/cloud-pubsub-logging-python',
